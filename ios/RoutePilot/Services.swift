@@ -1,6 +1,8 @@
 import Foundation
 import UIKit
 import Security
+import Vision
+import UserNotifications
 
 // MARK: - Secure settings
 
@@ -38,13 +40,18 @@ enum LabelParser {
     var name: String = ""
     var address: String = ""
     var postcode: String = ""
+    var phone: String = ""
     var warnings: [String] = []
   }
 
   static func parse(_ text: String) -> Result {
     let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-    let recipientIndex = lines.firstIndex { $0.localizedCaseInsensitiveContains("Recipient") || $0.localizedCaseInsensitiveContains("Penerima") }
-    let start = recipientIndex.map { $0 + 1 } ?? lines.firstIndex { $0.hasPrefix("Address:") } ?? lines.endIndex
+    let recipientIndex = lines.firstIndex {
+      $0.localizedCaseInsensitiveContains("Recipient") || $0.localizedCaseInsensitiveContains("Penerima")
+    }
+    let start = recipientIndex.map { $0 + 1 }
+      ?? lines.firstIndex { $0.hasPrefix("Address:") }
+      ?? lines.endIndex
     var result = Result()
     var i = start
     while i < lines.count {
@@ -71,6 +78,7 @@ enum LabelParser {
       result.postcode = digits(text, length: 5)
       if !result.postcode.isEmpty { result.warnings.append("Postcode inferred") }
     }
+    result.phone = phoneNumber(text)
     if result.address.isEmpty { result.warnings.append("No address found") }
     if result.name.isEmpty { result.warnings.append("No recipient name found") }
     return result
@@ -79,6 +87,15 @@ enum LabelParser {
   private static func digits(_ text: String, length: Int) -> String {
     let numbers = text.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { $0.count == length }
     return numbers.first ?? ""
+  }
+
+  private static func phoneNumber(_ text: String) -> String {
+    let pattern = #"(?:\+?60)?0\d{1,2}[- ]?\d{3,4}[- ]?\d{3,4}"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return "" }
+    let range = NSRange(text.startIndex..., in: text)
+    guard let match = regex.firstMatch(in: text, range: range),
+          let found = Range(match.range, in: text) else { return "" }
+    return String(text[found])
   }
 }
 
@@ -110,7 +127,78 @@ enum CsvParser {
   }
 }
 
-// MARK: - Network
+// MARK: - On-device OCR
+
+enum DeviceOCR {
+  static func fields(from image: UIImage) async -> LabelParser.Result {
+    guard let cgImage = image.cgImage else {
+      return LabelParser.Result(warnings: ["Could not read the image"])
+    }
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    do {
+      try handler.perform([request])
+      let observations = request.results ?? []
+      let text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+      guard !text.isEmpty else { return LabelParser.Result(warnings: ["No text found on the label"]) }
+      return LabelParser.parse(text)
+    } catch {
+      return LabelParser.Result(warnings: ["On-device reading failed — enter the address manually"])
+    }
+  }
+}
+
+// MARK: - Notifications
+
+enum NotificationScheduler {
+  static func requestPermission() async {
+    guard let granted = try? await UNUserNotificationCenter.current()
+      .requestAuthorization(options: [.alert, .sound, .badge]) else { return }
+    if granted { configure() }
+  }
+
+  static func configure() {
+    let category = UNNotificationCategory(
+      identifier: "deliveryWindow", actions: [], intentIdentifiers: [], options: []
+    )
+    UNUserNotificationCenter.current().setNotificationCategories([category])
+  }
+
+  static func schedule(label: String, windowStart: String, stopID: String) {
+    guard let time = parseTime(windowStart) else { return }
+    let now = Date()
+    guard let window = Calendar.current.date(bySettingHour: time.hour, minute: time.minute, second: 0, of: now),
+          let fireDate = Calendar.current.date(byAdding: .minute, value: -30, to: window) else { return }
+    var fire = fireDate
+    if fire <= now { fire = Calendar.current.date(byAdding: .day, value: 1, to: fire) ?? now }
+    let trigger = UNCalendarNotificationTrigger(
+      dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fire),
+      repeats: false
+    )
+    let content = UNMutableNotificationContent()
+    content.title = "Delivery window"
+    content.body = "\(label) opens at \(windowStart)."
+    content.sound = .default
+    content.categoryIdentifier = "deliveryWindow"
+    let request = UNNotificationRequest(identifier: "window-\(stopID)", content: content, trigger: trigger)
+    UNUserNotificationCenter.current().add(request)
+  }
+
+  static func cancel(stopID: String) {
+    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["window-\(stopID)"])
+  }
+
+  private static func parseTime(_ value: String) -> (hour: Int, minute: Int)? {
+    let parts = value.split(separator: ":").map { Int($0) }
+    guard parts.count == 2, let hour = parts[0], let minute = parts[1],
+          (0...23).contains(hour), (0...59).contains(minute) else { return nil }
+    return (hour, minute)
+  }
+}
+
+// MARK: - AI client
 
 private struct ChatResponse: Decodable {
   struct Choice: Decodable { struct Message: Decodable { var content: String }; var message: Message }
@@ -122,10 +210,15 @@ enum LucifClient {
 
   static func fields(from image: UIImage) async throws -> LabelParser.Result {
     let key = KeychainStore.read(key: "lucif_api_key")
-    guard !key.isEmpty else { throw NSError(domain: "RoutePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Set an API key in AI settings"]) }
-    guard let data = image.jpegData(compressionQuality: 0.8) else { throw NSError(domain: "RoutePilot", code: 2) }
+    guard !key.isEmpty else {
+      throw NSError(domain: "RoutePilot", code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Set an API key in AI settings"])
+    }
+    guard let data = image.jpegData(compressionQuality: 0.8) else {
+      throw NSError(domain: "RoutePilot", code: 2)
+    }
     let base64 = data.base64EncodedString()
-    let prompt = "Read this parcel label. Return ONLY compact JSON: {\"name\":...,\"address\":...,\"postcode\":...} for the RECIPIENT, not the sender. Use null if unknown."
+    let prompt = "Read this parcel label. Return ONLY compact JSON: {\"name\":...,\"address\":...,\"postcode\":...,\"phone\":...} for the RECIPIENT, not the sender. Use null if unknown."
     let body: [String: Any] = [
       "model": "lucif",
       "max_tokens": 250,
@@ -171,6 +264,7 @@ enum LucifClient {
       name: json["name"] as? String ?? "",
       address: json["address"] as? String ?? "",
       postcode: json["postcode"] as? String ?? "",
+      phone: json["phone"] as? String ?? "",
     )
   }
 
@@ -182,6 +276,8 @@ enum LucifClient {
   }
 }
 
+// MARK: - Geocoding and routing
+
 enum Nominatim {
   static func geocode(_ address: String) async -> (Double, Double)? {
     guard let query = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
@@ -190,9 +286,10 @@ enum Nominatim {
     request.setValue("RoutePilot/1.0 (courier route helper)", forHTTPHeaderField: "User-Agent")
     guard let (data, _) = try? await URLSession.shared.data(for: request),
           let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-          let first = array.first,
-          let lat = Double((first["lat"] as? String) ?? ""),
-          let lon = Double((first["lon"] as? String) ?? "") else { return nil }
+          let first = array.first else { return nil }
+    let lat = (first["lat"] as? String).flatMap { Double($0) }
+    let lon = (first["lon"] as? String).flatMap { Double($0) }
+    guard let lat, let lon else { return nil }
     return (lat, lon)
   }
 }
@@ -207,8 +304,8 @@ enum Osrm {
   static func route(origin: (Double, Double), stops: [(Double, Double)]) async -> RoutePath? {
     let coords = [origin] + stops
     let path = coords.map { "\($0.1),\($0.0)" }.joined(separator: ";")
-    guard let url = URL(string: "https://router.project-osrm.org/route/v1/driving/\(path)?overview=full&geometries=geojson&steps=false") else { return nil }
-    guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
+    guard let url = URL(string: "https://router.project-osrm.org/route/v1/driving/\(path)?overview=full&geometries=geojson&steps=false"),
+          let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let routes = json["routes"] as? [[String: Any]],
           let first = routes.first else { return nil }
@@ -229,8 +326,8 @@ enum Osrm {
   static func table(origin: (Double, Double), stops: [(Double, Double)]) async -> [[Double]]? {
     let coords = [origin] + stops
     let path = coords.map { "\($0.1),\($0.0)" }.joined(separator: ";")
-    guard let url = URL(string: "https://router.project-osrm.org/table/v1/driving/\(path)?annotations=duration") else { return nil }
-    guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
+    guard let url = URL(string: "https://router.project-osrm.org/table/v1/driving/\(path)?annotations=duration"),
+          let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let durations = json["durations"] as? [[Double]] else { return nil }
     return durations

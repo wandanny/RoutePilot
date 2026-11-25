@@ -15,13 +15,15 @@ enum FailureReason: String, Codable, CaseIterable {
 
 @Model
 final class RouteRecord {
+  var id: String
   var name: String
   var date: String
   var active: Bool
   @Relationship(deleteRule: .cascade, inverse: \StopRecord.route)
   var stops: [StopRecord] = []
 
-  init(name: String, date: String, active: Bool) {
+  init(id: String = UUID().uuidString, name: String, date: String, active: Bool) {
+    self.id = id
     self.name = name
     self.date = date
     self.active = active
@@ -30,6 +32,7 @@ final class RouteRecord {
 
 @Model
 final class StopRecord {
+  var id: String
   var route: RouteRecord?
   var address: String
   var label: String
@@ -51,6 +54,7 @@ final class StopRecord {
   var estimatedCoordinates: Bool
 
   init(
+    id: String = UUID().uuidString,
     route: RouteRecord? = nil,
     address: String,
     label: String = "",
@@ -71,6 +75,7 @@ final class StopRecord {
     trackingId: String = "",
     estimatedCoordinates: Bool = false
   ) {
+    self.id = id
     self.route = route
     self.address = address
     self.label = label
@@ -93,6 +98,9 @@ final class StopRecord {
   }
 }
 
+extension RouteRecord: Identifiable {}
+extension StopRecord: Identifiable {}
+
 struct BackupPayload: Codable {
   var routes: [RouteDTO]
   var stops: [StopDTO]
@@ -105,6 +113,7 @@ struct RouteDTO: Codable {
 }
 
 struct StopDTO: Codable {
+  var id: String = ""
   var address: String
   var label: String
   var recipient: String

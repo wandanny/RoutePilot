@@ -23,6 +23,19 @@ jobs:
       - name: Show available SDKs
         run: xcodebuild -showsdks
 
+      - name: Run unit tests
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project RoutePilot.xcodeproj \
+            -scheme RoutePilot \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test
+
       - name: Build unsigned app
         working-directory: ios
         run: |

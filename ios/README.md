@@ -1,33 +1,43 @@
-# RoutePilot for iPhone (SwiftUI)
+# RoutePilot for iPhone (SwiftUI) — v1.0.0
 
-This is a native iOS rebuild of the Android app. It is **not** an APK wrapper. It is signed and sideloaded with a free Apple ID — no paid Apple Developer Program.
+A native iOS rebuild of the Android courier route helper. It is **not** an APK wrapper. It is signed and sideloaded with a free Apple ID — no paid Apple Developer Program.
 
-## Build the unsigned IPA
+Design source of truth: `DESIGN.md`. Visual preview: `design-preview.html`. Product spec: `../SPEC.md`.
 
-1. Push this repository to GitHub (public repo keeps CI free).
-2. The workflow `.github/workflows/ios-build.yml` runs on a macOS runner, generates the Xcode project with XcodeGen, builds an unsigned app, packs an IPA and uploads it as an artifact.
-3. Download `RoutePilot-unsigned-ipa` from the Actions run.
+## Build
 
-No Mac is needed on your side.
+Push to GitHub. The workflow `.github/workflows/ios-build.yml` runs on a macOS runner:
+
+1. Generates the Xcode project with XcodeGen from `project.yml`.
+2. Runs unit tests for label parsing, CSV parsing and route ordering on the iOS simulator.
+3. Builds an unsigned release app, packs an IPA and uploads it as `RoutePilot-unsigned-ipa`.
+
+No Mac is needed on your side. The Windows development machine cannot compile Swift; CI is the real build check.
 
 ## Sideload with AltStore + AltServer
 
 1. Install **AltServer** on your Windows PC and **AltStore** on the iPhone.
 2. Sign in with your free Apple ID in AltStore.
-3. Install AltServer's Mail plugin if prompted on macOS (Windows uses the AltServer app directly).
-4. Connect the iPhone by USB or Wi‑Fi with AltServer running.
-5. In AltStore, **+ → Install** the downloaded `RoutePilot.ipa`.
-6. Free certificates expire after **7 days**. Keep AltServer running and use **Refresh All** in AltStore at least once a week, or the app will stop opening.
+3. Connect the iPhone by USB (or Wi-Fi with AltServer running) and trust the PC.
+4. In AltStore, **Install from URL** with the GitHub release URL, or share the IPA from Files.
+5. Free certificates expire after **7 days**. Keep AltServer running and use **Refresh All** in AltStore at least once a week.
 
-## What's included
+## Included in v1.0
 
-Core parity: label scanning through AI with editable confirmation, AI settings stored in the Keychain, route list, CSV import, add stop, Nominatim + AI geocoding with estimated-coordinate flags, OSRM optimization, Optimize now, done/failed states, exceptions, archive, summary, in-app MapKit map, Google Maps handoff, JSON backup/restore, reset with confirmation.
+- Four tabs: Route, Scan, Map, Archive. Exceptions are the Failed filter on Route.
+- AI-first label reading via lucif.ai with automatic on-device Apple Vision fallback, editable confirmation and a source badge.
+- Nominatim geocoding with AI coordinate fallback; estimated coordinates are flagged.
+- OSRM road-duration route optimization with open-path ordering and "Optimize now".
+- Delivery windows editable in Add Stop and stop details; local notification 30 minutes before a window opens.
+- Manual reorder by drag in the list and up/down buttons in the detail sheet.
+- In-app MapKit map with numbered markers, route polyline and a glass stats panel.
+- Google Maps handoff in chunks of nine stops.
+- Done / Failed with reason, exceptions, archive, summary, reset with confirmation.
+- JSON backup and restore via the Route options sheet. Data stays local; no account, backend or sync.
+- Custom app icon, iOS-specific route-line loading animation, full light/dark mode, Dynamic Type, VoiceOver and 48 pt targets.
 
-Data stays local on each device; move it between phone and tablet with the backup file. No backend, no accounts, no proof-of-delivery photos or signatures.
+CSV export is intentionally out of scope for v1.0.
 
-## Known caveats
+## Distribution
 
-- The iOS code cannot be compiled on the Windows development machine. The macOS CI runner is the first real compile check; expect to iterate on build errors there.
-- Apple Vision is not yet wired into the fallback path in this first pass — on-device OCR fallback is still to be added after the initial build succeeds.
-- Not yet ported: CSV export of history, delivery-window notifications, per-stop manual reorder, and the Android loading-screen animation. These are planned for the parity pass after the first installable build.
-- AltStore's 7-day re-signing is mandatory with a free Apple ID.
+Free AltStore sideloading from a GitHub release is the final channel. TestFlight and the App Store require the paid Apple Developer Program, which this project deliberately avoids.

@@ -6,19 +6,41 @@ options:
   groupSortPosition: top
 
 targets:
+  RoutePilotTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RoutePilotTests
+    dependencies:
+      - target: RoutePilot
+    settings:
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
+        Release:
+          CODE_SIGNING_ALLOWED: NO
+
   RoutePilot:
     type: application
     platform: iOS
     sources:
       - path: RoutePilot
+    resources:
+      - path: RoutePilot/Assets.xcassets
     settings:
       configs:
         Debug:
           CODE_SIGNING_ALLOWED: NO
           PRODUCT_BUNDLE_IDENTIFIER: com.local.routepilot.ios
+          MARKETING_VERSION: "1.0.0"
+          CURRENT_PROJECT_VERSION: 1
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         Release:
           CODE_SIGNING_ALLOWED: NO
           PRODUCT_BUNDLE_IDENTIFIER: com.local.routepilot.ios
+          MARKETING_VERSION: "1.0.0"
+          CURRENT_PROJECT_VERSION: 1
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: RoutePilot/Info.plist
       properties:
