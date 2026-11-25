@@ -301,7 +301,8 @@ struct ContentView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
-            .onMove { from, to in
+            .onMove { indices, to in
+              guard let from = indices.first else { return }
               let moving = visible
               guard from < moving.count, to < moving.count else { return }
               var reordered = moving
@@ -594,7 +595,7 @@ struct OptionsSheet: View {
     }
   }
 
-  private func run(_ action: () -> Void) {
+  private func run(_ action: @escaping () -> Void) {
     dismiss()
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: action)
   }
