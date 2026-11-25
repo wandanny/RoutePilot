@@ -46,6 +46,8 @@ targets:
       properties:
         CFBundleDisplayName: RoutePilot
         CFBundleName: RoutePilot
+        CFBundleShortVersionString: "1.0.1"
+        CFBundleVersion: "2"
         UIRequiredDeviceCapabilities:
           - arm64
         NSCameraUsageDescription: "RoutePilot uses the camera to read parcel labels."
