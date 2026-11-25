@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RoutePilot iOS — Design Preview v1.0.0</title>
+<title>RoutePilot iOS — Design Preview v1.0.1</title>
 <style>
   :root{
     --canvas:#F7F5F1; --surface:#FFFFFF; --muted:#EDE9E2; --charcoal:#262625; --dark:#151514;
@@ -98,6 +98,17 @@
   .card .mini .status{margin:0;font-size:12px;padding:5px 9px}
   .card .mini .act{margin-left:auto;font-size:14px;font-weight:700;color:var(--accent-text)}
   .warn{font-size:12px;color:var(--error);grid-column:2/4;line-height:1.45;margin-top:6px}
+  .minimap{grid-column:2/4;height:88px;border-radius:12px;overflow:hidden;position:relative;border:1px solid var(--divider);background:repeating-linear-gradient(0deg,#EAE7E0,#EAE7E0 14px,#E1DCD3 14px,#E1DCD3 15px),repeating-linear-gradient(90deg,#EAE7E0,#EAE7E0 18px,#E1DCD3 18px,#E1DCD3 19px)}
+  .minimap .road{position:absolute;left:-10%;top:46%;width:120%;height:6px;background:#fff;transform:rotate(-12deg);box-shadow:0 0 0 1px rgba(31,29,26,.08)}
+  .minimap .road.v{left:58%;top:-10%;width:6px;height:120%;transform:rotate(18deg)}
+  .minimap .pin{position:absolute;left:52%;top:36%;width:18px;height:18px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);background:var(--accent-text);border:2px solid #fff}
+  .minimap .pin b{position:absolute;inset:0;transform:rotate(45deg);display:grid;place-items:center;color:#fff;font-size:9px}
+  .minimap.unresolved{display:grid;place-items:center;background:var(--muted);color:var(--secondary);font-size:13px;font-weight:600}
+  .batchsheet{position:absolute;left:0;right:0;bottom:0;background:rgba(247,245,241,.9);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:22px 22px 0 0;border-top:1px solid var(--divider);padding:10px 20px 24px;color:var(--text)}
+  .batchsheet .tally{font-size:13px;font-weight:700;color:var(--accent-text);letter-spacing:.04em;margin-bottom:6px}
+  .batchsheet .batchlist{display:flex;gap:6px;margin:12px 0 18px}
+  .batchsheet .batchlist span{flex:1;text-align:center;padding:8px 0;border-radius:10px;background:var(--muted);font-size:12px;font-weight:600}
+  .batchsheet .batchlist span.current{background:var(--accent);color:#1F1D1A}
 
   /* scan */
   .scanframe{margin:8px auto 20px;width:230px;height:250px;border:2px solid #fff;border-radius:20px;background:linear-gradient(145deg,#3A3A38,#222);display:grid;place-items:center;color:rgba(255,255,255,.55);font-size:13px}
@@ -125,6 +136,9 @@
   .tagline{font-size:16px;color:#B9B2AA;margin-top:4px}
   @keyframes draw{to{stroke-dashoffset:0}}
   @keyframes pop{to{opacity:1}}
+  .covermock{background:var(--charcoal);flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:560px}
+  .covermock img{width:96px;height:96px}
+  .covermock .wordmark{margin-top:8px}
 
   /* sheet mock */
   .sheetmock{position:absolute;left:0;right:0;bottom:0;background:rgba(247,245,241,.88);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:22px 22px 0 0;border-top:1px solid var(--divider);padding:10px 16px 20px;color:var(--text);box-shadow:0 -8px 30px rgba(0,0,0,.18)}
@@ -147,9 +161,9 @@
 <body>
 <div class="wrap">
   <header>
-    <span class="badge">iOS v1.0.0 · design preview</span>
+    <span class="badge">iOS v1.0.1 · design preview</span>
     <h1>RoutePilot — iOS design system</h1>
-    <p class="read">Fresh iOS-first redesign. Calm, high-contrast field utility: warm neutral surfaces, one burnt-orange accent, chrome-only glass, SF Pro with full Dynamic Type. Built for a courier glancing at it while moving.</p>
+    <p class="read">Fresh iOS-first redesign. Calm, high-contrast field utility: warm neutral surfaces, one burnt-orange accent, chrome-only glass, SF Pro with full Dynamic Type. Built for a courier glancing at it while moving. v1.0.1 adds per-stop mini-map previews, a batched Maps handoff, and removes AI-estimated coordinates.</p>
   </header>
 
   <section>
@@ -227,7 +241,7 @@
 
   <section>
     <h2>Screens</h2>
-    <p class="note">Four tabs: Route, Scan, Map, Archive. Exceptions are the Failed filter. Settings and backup live in the Route ellipsis.</p>
+    <p class="note">Four tabs: Route, Scan, Map, Archive. Exceptions are the Failed filter. Settings and backup live in the Route ellipsis. Each stop card carries a one-pin mini map; unresolved addresses get a placeholder instead of a wrong pin. Maps handoff is a visible "Open in Google Maps" Route button and a batched confirmation sheet. The app switcher shows a branded cover.</p>
     <div class="phones">
 
       <div class="phone"><div class="screen">
@@ -242,10 +256,11 @@
           </div>
           <div class="primaryrow"><button class="btn primary">Scan label</button><button class="btn primary">Navigate all</button></div>
           <div class="secondaryrow"><button class="btn secondary">Import CSV</button><button class="btn secondary">Add stop</button><button class="btn secondary">Optimize now</button></div>
+          <button class="btn primary" style="width:100%;margin:0 0 4px">Open in Google Maps</button>
           <div class="chips" style="margin-bottom:12px"><span class="pill on">All</span><span class="pill off">Pending</span><span class="pill off">Done</span><span class="pill off">! Failed</span></div>
-          <div class="card"><div class="num">1</div><div><div class="ttl">Parcel 4821</div><div class="adr">Jalan Kota, Taiping · 34000</div></div><div></div><div class="mini"><span class="status done"><i class="dot"></i>Done</span><span class="act">View</span></div></div>
-          <div class="card"><div class="num">2</div><div><div class="ttl">Parcel 4822</div><div class="adr">Jalan Kamunting, Taiping</div></div><div></div><div class="mini"><span class="status"><i class="dot"></i>Pending</span><span class="act">Done ›</span></div><div class="warn">Coordinates estimated by AI — check the address.</div></div>
-          <div class="card"><div class="num">3</div><div><div class="ttl">Parcel 4823</div><div class="adr">Simpang, Perak</div></div><div></div><div class="mini"><span class="status failed"><i class="dot"></i>Failed</span><span class="act">Not home</span></div></div>
+          <div class="card"><div class="num">1</div><div><div class="ttl">Parcel 4821</div><div class="adr">Jalan Kota, Taiping · 34000</div></div><div></div><div class="minimap"><i class="road"></i><i class="road v"></i><div class="pin"><b>1</b></div></div><div class="mini"><span class="status done"><i class="dot"></i>Done</span><span class="act">View</span></div></div>
+          <div class="card"><div class="num">2</div><div><div class="ttl">Parcel 4822</div><div class="adr">Jalan Kamunting, Taiping</div></div><div></div><div class="minimap"><i class="road"></i><i class="road v"></i><div class="pin"><b>2</b></div></div><div class="mini"><span class="status"><i class="dot"></i>Pending</span><span class="act">Done ›</span></div></div>
+          <div class="card"><div class="num">3</div><div><div class="ttl">Parcel 4823</div><div class="adr">Simpang, Perak</div></div><div></div><div class="minimap unresolved">Location not found</div><div class="warn">Address not found — tap to edit.</div><div class="mini"><span class="status failed"><i class="dot"></i>Failed</span><span class="act">Not home</span></div></div>
         </div>
         <div class="glassbar">
           <div class="tab active"><span class="sym">◇</span>Route</div><div class="tab"><span class="sym">◎</span>Scan</div>
@@ -313,10 +328,36 @@
         <div class="sheetmock">
           <div class="grabber"></div><h4>Route options</h4>
           <div class="sheetrow"><span>Summary</span><span class="chev">›</span></div>
+          <div class="sheetrow"><span>Open in Google Maps</span><span class="chev">›</span></div>
           <div class="sheetrow"><span>Backup</span><span class="chev">›</span></div>
           <div class="sheetrow"><span>Restore</span><span class="chev">›</span></div>
           <div class="sheetrow"><span>AI settings</span><span class="chev">›</span></div>
           <div class="sheetrow"><span style="color:var(--error)">Reset route</span><span class="chev">›</span></div>
+        </div>
+      </div></div>
+
+      <div class="phone"><div class="screen">
+        <div class="covermock">
+          <img src="design-assets/icon-cover.png" alt="RoutePilot logo">
+          <div class="wordmark">RoutePilot</div>
+          <div class="tagline">Your route, sorted.</div>
+        </div>
+      </div></div>
+
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="content" style="opacity:.4">
+          <div class="top"><span class="word">RoutePilot</span></div>
+          <div class="hero"><div class="cap">Today's progress</div><div class="big">3 of 12</div></div>
+        </div>
+        <div class="batchsheet">
+          <div class="grabber"></div>
+          <div class="tally">BATCH 1 OF 3</div>
+          <h4 style="font-size:18px;margin:0">Open route in Google Maps</h4>
+          <p style="font-size:14px;color:var(--secondary);margin:6px 0 0">3 batches of up to 9 stops. Open each batch in turn.</p>
+          <div class="batchlist"><span class="current">1 · 9 stops</span><span>2 · 9 stops</span><span>3 · 4 stops</span></div>
+          <button class="btn primary" style="width:100%;margin:0 0 8px">Open batch 1</button>
+          <button class="btn secondary" style="width:100%;margin:0">Next batch</button>
         </div>
       </div></div>
 

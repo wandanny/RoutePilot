@@ -61,7 +61,8 @@ enum RP {
     static let scanError = "Couldn't read the label. Try again or enter the address manually."
     static let offline = "You're offline. Stops are saved on this device; route optimisation will run when you reconnect."
     static let saved = "Stop added."
-    static let estimated = "Coordinates estimated by AI — check the address."
+    static let unresolved = "Address not found — tap to edit."
+    static let mapsBatchTitle = "Open route in Google Maps"
   }
 }
 

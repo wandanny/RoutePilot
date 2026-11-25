@@ -43,21 +43,23 @@ struct LoadingScreen: View {
     ZStack {
       RP.charcoal(scheme).ignoresSafeArea()
       VStack(spacing: 8) {
-        Path { path in
-          path.move(to: CGPoint(x: 24, y: 104))
-          path.addCurve(
-            to: CGPoint(x: 166, y: 22),
-            control1: CGPoint(x: 78, y: 104),
-            control2: CGPoint(x: 104, y: 22)
-          )
+        ZStack {
+          Path { path in
+            path.move(to: CGPoint(x: 24, y: 104))
+            path.addCurve(
+              to: CGPoint(x: 166, y: 22),
+              control1: CGPoint(x: 78, y: 104),
+              control2: CGPoint(x: 104, y: 22)
+            )
+          }
+          .trim(from: 0, to: trim)
+          .stroke(RP.accentFill(scheme), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+          Circle().fill(RP.accentFill(scheme)).frame(width: 16, height: 16)
+            .position(x: 24, y: 104)
+          Circle().fill(RP.accentFill(scheme)).frame(width: 16, height: 16)
+            .position(x: 166, y: 22)
         }
-        .trim(from: 0, to: trim)
-        .stroke(RP.accentFill(scheme), style: StrokeStyle(lineWidth: 4, lineCap: .round))
         .frame(width: 190, height: 120)
-        Circle().fill(RP.accentFill(scheme)).frame(width: 16, height: 16)
-          .offset(x: -71, y: 48)
-        Circle().fill(RP.accentFill(scheme)).frame(width: 16, height: 16)
-          .offset(x: 71, y: -42)
         Text("RoutePilot")
           .font(.system(size: 26, weight: .bold, design: .rounded))
           .foregroundStyle(RP.canvas(scheme))
@@ -75,11 +77,37 @@ struct LoadingScreen: View {
   }
 }
 
+// MARK: - App switcher cover
+
+struct AppCoverView: View {
+  @Environment(\.colorScheme) private var scheme
+  var body: some View {
+    ZStack {
+      RP.charcoal(scheme).ignoresSafeArea()
+      VStack(spacing: 10) {
+        Image("BrandMark")
+          .resizable()
+          .scaledToFit()
+          .frame(width: 96, height: 96)
+        Text("RoutePilot")
+          .font(.system(size: 26, weight: .bold, design: .rounded))
+          .foregroundStyle(RP.canvas(scheme))
+          .padding(.top, 8)
+        Text(RP.Copy.loading)
+          .font(.system(size: 16))
+          .foregroundStyle(RP.secondary(scheme))
+      }
+    }
+    .accessibilityHidden(true)
+  }
+}
+
 // MARK: - Root
 
 struct ContentView: View {
   @Environment(\.modelContext) private var context
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.scenePhase) private var scenePhase
   @Query private var allRoutes: [RouteRecord]
   @Query private var allStops: [StopRecord]
 
@@ -90,8 +118,9 @@ struct ContentView: View {
   @State private var showAdd = false
   @State private var showOptions = false
   @State private var showSummary = false
+  @State private var showMapsBatch = false
+  @State private var batchIndex = 0
   @State private var showSettings = false
-  @State private var showReset = false
   @State private var showConsent = false
   @State private var detailStop: StopRecord?
   @State private var importCSV = false
@@ -107,6 +136,14 @@ struct ContentView: View {
   }
   private var stops: [StopRecord] { routeStops.sorted { $0.orderIndex < $1.orderIndex } }
 
+  private var mapBatches: [[StopRecord]] {
+    let pending = stops.filter { $0.status == .pending }
+    guard !pending.isEmpty else { return [] }
+    return stride(from: 0, to: pending.count, by: 9).map { offset in
+      Array(pending[offset..<Swift.min(offset + 9, pending.count)])
+    }
+  }
+
   var body: some View {
     Group {
       if ready {
@@ -118,8 +155,10 @@ struct ContentView: View {
     .task {
       let start = Date()
       LocationProvider.shared.request()
+      migrateEstimatedCoordinates()
       ensureRoute()
       Task { await NotificationScheduler.requestPermission() }
+      Task { await optimize() }
       let elapsed = Date().timeIntervalSince(start)
       if elapsed < 0.8 {
         try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
@@ -154,8 +193,11 @@ struct ContentView: View {
         onBackup: { backupData = makeBackup(); showExportBackup = true },
         onRestore: { showImportBackup = true },
         onSettings: { showSettings = true },
-        onMaps: { openMaps() },
-        onReset: { showReset = true },
+        onMaps: { batchIndex = 0; showMapsBatch = true },
+        onReset: { resetRoute() },
+        pendingCount: stops.filter { $0.status == .pending }.count,
+        doneCount: stops.filter { $0.status == .done }.count,
+        failedCount: stops.filter { $0.status == .failed }.count,
         onClose: { showOptions = false }
       )
     }
@@ -189,11 +231,16 @@ struct ContentView: View {
     .alert("RoutePilot", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("OK", role: .cancel) { message = nil }
     } message: { Text(message ?? "") }
-    .alert("Reset route?", isPresented: $showReset) {
-      Button("Cancel", role: .cancel) {}
-      Button("Reset route", role: .destructive) { resetRoute() }
-    } message: {
-      Text("Pending \(stops.filter { $0.status == .pending }.count) · Done \(stops.filter { $0.status == .done }.count) · Failed \(stops.filter { $0.status == .failed }.count). The route will be archived and a new empty route started.")
+    .sheet(isPresented: $showMapsBatch) {
+      MapsBatchSheet(
+        batches: mapBatches,
+        index: $batchIndex,
+        onOpen: { openMapsBatch(at: $0) },
+        onClose: { showMapsBatch = false }
+      )
+    }
+    .overlay {
+      if scenePhase == .background { AppCoverView() }
     }
   }
 
@@ -269,6 +316,11 @@ struct ContentView: View {
           SecondaryButton(title: "Optimize now") { Task { await optimize() } }
         }
 
+        PrimaryButton(title: "Open in Google Maps", systemImage: "arrow.up.forward.app") {
+          batchIndex = 0
+          showMapsBatch = true
+        }
+
         HStack(spacing: 8) {
           FilterChip(title: "All", symbol: nil, selected: filter == .all) { filter = .all }
           FilterChip(title: "Pending", symbol: nil, selected: filter == .pending) { filter = .pending }
@@ -295,26 +347,11 @@ struct ContentView: View {
           .background(RP.surface(scheme))
           .clipShape(RoundedRectangle(cornerRadius: RP.Space.cardRadius))
         } else {
-          List {
-            ForEach(Array(visible.enumerated()), id: \.element.id) { _, stop in
+          LazyVStack(spacing: RP.Space.sm) {
+            ForEach(visible) { stop in
               stopCard(stop)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-            .onMove { indices, to in
-              guard let from = indices.first else { return }
-              let moving = visible
-              guard from < moving.count, to < moving.count else { return }
-              var reordered = moving
-              let item = reordered.remove(at: from)
-              reordered.insert(item, at: to)
-              for (index, stop) in reordered.enumerated() { stop.orderIndex = index }
             }
           }
-          .listStyle(.plain)
-          .scrollDisabled(true)
-          .frame(height: CGFloat(visible.count) * 132)
         }
       }
       .padding(.horizontal, RP.Space.lg)
@@ -339,6 +376,19 @@ struct ContentView: View {
         }
         Spacer()
       }
+      if let lat = stop.latitude, let lon = stop.longitude {
+        MiniMapView(latitude: lat, longitude: lon)
+      } else {
+        ZStack {
+          RP.surfaceMuted(scheme)
+          Text("Location not found")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(RP.secondary(scheme))
+        }
+        .frame(height: 88)
+        .clipShape(RoundedRectangle(cornerRadius: RP.Space.inputRadius))
+        Text(RP.Copy.unresolved).font(.system(size: 12)).foregroundStyle(RP.error(scheme))
+      }
       HStack {
         StatusPill(status: stop.status)
         Spacer()
@@ -347,9 +397,6 @@ struct ContentView: View {
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(RP.accentText(scheme))
         }
-      }
-      if stop.estimatedCoordinates {
-        Text(RP.Copy.estimated).font(.system(size: 12)).foregroundStyle(RP.error(scheme))
       }
     }
     .padding(RP.Space.lg)
@@ -498,10 +545,9 @@ struct ContentView: View {
         if let point = await Nominatim.geocode(stop.address) {
           stop.latitude = point.0
           stop.longitude = point.1
-        } else if let point = try? await LucifClient.coordinates(for: stop.address) {
+        } else if let point = await AppleGeocoder.geocode(stop.address) {
           stop.latitude = point.0
           stop.longitude = point.1
-          stop.estimatedCoordinates = true
         }
       }
       if let lat = stop.latitude, let lon = stop.longitude { coords.append((lat, lon)) }
@@ -524,13 +570,10 @@ struct ContentView: View {
     }
   }
 
-  private func openMaps() {
-    let pending = stops.filter { $0.status == .pending }
-    guard !pending.isEmpty else { message = "No pending stops"; return }
-    let chunks = stride(from: 0, to: pending.count, by: 9).map { offset in
-      Array(pending[offset..<Swift.min(offset + 9, pending.count)])
-    }
-    guard let first = chunks.first, var components = URLComponents(string: "https://www.google.com/maps/dir/") else { return }
+  private func openMapsBatch(at index: Int) {
+    let batches = mapBatches
+    guard batches.indices.contains(index), var components = URLComponents(string: "https://www.google.com/maps/dir/") else { return }
+    let batch = batches[index]
     let origin = LocationProvider.shared.current()
     let place: (StopRecord) -> String = { stop in
       if let lat = stop.latitude, let lon = stop.longitude { return "\(lat),\(lon)" }
@@ -538,9 +581,9 @@ struct ContentView: View {
     }
     var query = [URLQueryItem(name: "api", value: "1")]
     if let origin { query.append(URLQueryItem(name: "origin", value: "\(origin.0),\(origin.1)")) }
-    query.append(URLQueryItem(name: "destination", value: place(first[first.count - 1])))
-    if first.count > 1 {
-      query.append(URLQueryItem(name: "waypoints", value: first.dropLast().map(place).joined(separator: "|")))
+    query.append(URLQueryItem(name: "destination", value: place(batch[batch.count - 1])))
+    if batch.count > 1 {
+      query.append(URLQueryItem(name: "waypoints", value: batch.dropLast().map(place).joined(separator: "|")))
     }
     query.append(URLQueryItem(name: "travelmode", value: "driving"))
     query.append(URLQueryItem(name: "dir_action", value: "navigate"))
@@ -549,9 +592,28 @@ struct ContentView: View {
   }
 
   private func resetRoute() {
-    activeRoute?.active = false
-    ensureRoute()
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    let previous = activeRoute
+    previous?.active = false
+    let fresh = RouteRecord(
+      name: "route-\(formatter.string(from: Date()))-\(UUID().uuidString.prefix(6))",
+      date: formatter.string(from: Date()),
+      active: true
+    )
+    context.insert(fresh)
     message = "Route archived. New route started."
+  }
+
+  private func migrateEstimatedCoordinates() {
+    let key = "routepilot.cleared.ai.coordinates"
+    guard !UserDefaults.standard.bool(forKey: key) else { return }
+    for stop in allStops where stop.estimatedCoordinates {
+      stop.latitude = nil
+      stop.longitude = nil
+      stop.estimatedCoordinates = false
+    }
+    UserDefaults.standard.set(true, forKey: key)
   }
 
   private func makeBackup() -> Data {
@@ -591,11 +653,54 @@ struct ContentView: View {
 
 enum StopFilter { case all, pending, done, failed }
 
+struct MiniMapView: View {
+  @Environment(\.colorScheme) private var scheme
+  let latitude: Double
+  let longitude: Double
+  @State private var image: UIImage?
+
+  var body: some View {
+    ZStack {
+      if let image {
+        Image(uiImage: image).resizable().scaledToFill()
+      } else {
+        RP.surfaceMuted(scheme)
+      }
+      Image(systemName: "mappin.circle.fill")
+        .font(.system(size: 24))
+        .foregroundStyle(RP.accentText(scheme))
+        .shadow(radius: 1)
+    }
+    .frame(height: 88)
+    .clipShape(RoundedRectangle(cornerRadius: RP.Space.inputRadius))
+    .task { await makeSnapshot() }
+  }
+
+  private func makeSnapshot() async {
+    let options = MKMapSnapshotter.Options()
+    options.region = MKCoordinateRegion(
+      center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+      latitudinalMeters: 700,
+      longitudinalMeters: 700
+    )
+    options.size = CGSize(width: 320, height: 176)
+    options.pointOfInterestFilter = .excludingAll
+    let snapshotter = MKMapSnapshotter(options: options)
+    let shot: UIImage? = await withCheckedContinuation { continuation in
+      snapshotter.start { snapshot, _ in
+        continuation.resume(returning: snapshot?.image)
+      }
+    }
+    image = shot
+  }
+}
+
 // MARK: - Options and summary
 
 struct OptionsSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(\.colorScheme) private var scheme
+  @State private var showResetAlert = false
   let onSummary: () -> Void
   let onBackup: () -> Void
   let onRestore: () -> Void
@@ -603,22 +708,35 @@ struct OptionsSheet: View {
   let onMaps: () -> Void
   let onReset: () -> Void
   let onClose: () -> Void
+  let pendingCount: Int
+  let doneCount: Int
+  let failedCount: Int
 
   var body: some View {
     NavigationStack {
       List {
         row("Summary", symbol: "chart.bar") { run(onSummary) }
-        row("Open in Maps", symbol: "map") { run(onMaps) }
+        row("Open in Google Maps", symbol: "map") { run(onMaps) }
         row("Backup", symbol: "square.and.arrow.up") { run(onBackup) }
         row("Restore", symbol: "square.and.arrow.down") { run(onRestore) }
         row("AI settings", symbol: "key") { run(onSettings) }
-        row("Reset route", symbol: "arrow.counterclockwise", destructive: true) { run(onReset) }
+        row("Reset route", symbol: "arrow.counterclockwise", destructive: true) { showResetAlert = true }
       }
       .listStyle(.insetGrouped)
       .scrollContentBackground(.hidden)
       .background(RP.canvas(scheme))
       .navigationTitle("Route options")
       .toolbar { Button("Close") { dismiss(); onClose() } }
+      .alert("Reset route?", isPresented: $showResetAlert) {
+        Button("Cancel", role: .cancel) {}
+        Button("Reset route", role: .destructive) {
+          onReset()
+          dismiss()
+          onClose()
+        }
+      } message: {
+        Text("Pending \(pendingCount) · Done \(doneCount) · Failed \(failedCount). The route will be archived and a new empty route started.")
+      }
     }
   }
 
@@ -640,6 +758,60 @@ struct OptionsSheet: View {
       .padding(.vertical, 6)
     }
     .buttonStyle(.plain)
+  }
+}
+
+struct MapsBatchSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @Environment(\.colorScheme) private var scheme
+  let batches: [[StopRecord]]
+  @Binding var index: Int
+  let onOpen: (Int) -> Void
+  let onClose: () -> Void
+
+  var body: some View {
+    NavigationStack {
+      VStack(alignment: .leading, spacing: RP.Space.lg) {
+        if batches.indices.contains(index) {
+          let current = batches[index]
+          Text("BATCH \(index + 1) OF \(batches.count)")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(RP.accentText(scheme))
+          Text(RP.Copy.mapsBatchTitle)
+            .font(.system(size: 22, weight: .bold, design: .rounded))
+          Text("\(batches.count) batches of up to 9 stops. Open each batch in turn.")
+            .font(.system(size: 16))
+            .foregroundStyle(RP.secondary(scheme))
+          HStack(spacing: 6) {
+            ForEach(batches.indices, id: \.self) { i in
+              Text("\(i + 1) · \(batches[i].count)")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(i == index ? RP.accentFill(scheme) : RP.surfaceMuted(scheme))
+                .foregroundStyle(i == index ? RP.onAccent(scheme) : RP.text(scheme))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+          }
+          Text("Batch \(index + 1) contains \(current.count) stops.")
+            .font(.system(size: 14))
+            .foregroundStyle(RP.secondary(scheme))
+          PrimaryButton(title: "Open batch \(index + 1)") { onOpen(index) }
+          if index < batches.count - 1 {
+            SecondaryButton(title: "Next batch") { index += 1 }
+          } else {
+            SecondaryButton(title: "Close") { dismiss(); onClose() }
+          }
+        } else {
+          Text("No pending stops.").font(.system(size: 17))
+          SecondaryButton(title: "Close") { dismiss(); onClose() }
+        }
+      }
+      .padding(RP.Space.xl)
+      .background(RP.canvas(scheme))
+      .navigationTitle("Google Maps")
+      .toolbar { Button("Close") { dismiss(); onClose() } }
+    }
   }
 }
 
@@ -960,8 +1132,8 @@ struct StopDetailSheet: View {
             SecondaryButton(title: "Move down") { onReorder(1) }
           }
 
-          if stop.estimatedCoordinates {
-            Text(RP.Copy.estimated).font(.system(size: 14)).foregroundStyle(RP.error(scheme))
+          if stop.latitude == nil || stop.longitude == nil {
+            Text(RP.Copy.unresolved).font(.system(size: 14)).foregroundStyle(RP.error(scheme))
           }
         }
         .padding(RP.Space.lg)

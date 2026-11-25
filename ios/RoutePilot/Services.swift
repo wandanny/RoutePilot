@@ -3,6 +3,7 @@ import UIKit
 import Security
 import Vision
 import UserNotifications
+import CoreLocation
 
 // MARK: - Secure settings
 
@@ -231,22 +232,6 @@ enum LucifClient {
     return decodeFields(content)
   }
 
-  static func coordinates(for address: String) async throws -> (Double, Double)? {
-    let key = KeychainStore.read(key: "lucif_api_key")
-    guard !key.isEmpty else { return nil }
-    let body: [String: Any] = [
-      "model": "lucif",
-      "max_tokens": 120,
-      "messages": [["role": "user", "content": "Estimate latitude and longitude for: \(address). Return ONLY JSON {\"lat\":number,\"lon\":number}"]],
-    ]
-    let content = try await chat(body, key: key)
-    guard let json = extractJSON(content) else { return nil }
-    let lat = (json["lat"] as? Double) ?? ((json["lat"] as? String).flatMap { Double($0) })
-    let lon = (json["lon"] as? Double) ?? ((json["lon"] as? String).flatMap { Double($0) })
-    guard let lat, let lon else { return nil }
-    return (lat, lon)
-  }
-
   private static func chat(_ body: [String: Any], key: String) async throws -> String {
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
@@ -278,9 +263,28 @@ enum LucifClient {
 
 // MARK: - Geocoding and routing
 
+enum AddressSupport {
+  static let regionHint = ", Taiping, Perak, Malaysia"
+
+  static func lookupText(for address: String) -> String {
+    let lower = address.lowercased()
+    if lower.contains("malaysia") || lower.contains(", perak") { return address }
+    return address + regionHint
+  }
+}
+
+enum AppleGeocoder {
+  static func geocode(_ address: String) async -> (Double, Double)? {
+    let request = CLGeocoder()
+    guard let placemark = try? await request.geocodeAddressString(AddressSupport.lookupText(for: address)),
+          let location = placemark.first?.location else { return nil }
+    return (location.coordinate.latitude, location.coordinate.longitude)
+  }
+}
+
 enum Nominatim {
   static func geocode(_ address: String) async -> (Double, Double)? {
-    guard let query = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+    guard let query = AddressSupport.lookupText(for: address).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
           let url = URL(string: "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=\(query)") else { return nil }
     var request = URLRequest(url: url)
     request.setValue("RoutePilot/1.0 (courier route helper)", forHTTPHeaderField: "User-Agent")

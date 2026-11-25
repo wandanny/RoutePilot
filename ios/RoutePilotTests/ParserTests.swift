@@ -40,6 +40,17 @@ final class ParserTests: XCTestCase {
     XCTAssertEqual(semiRows[0]["label"], "Parcel 2")
   }
 
+  func testAddressLookupAddsRegionHintOnlyWhenNeeded() {
+    XCTAssertEqual(
+      AddressSupport.lookupText(for: "No. 12, Jalan Kota"),
+      "No. 12, Jalan Kota, Taiping, Perak, Malaysia"
+    )
+    XCTAssertEqual(
+      AddressSupport.lookupText(for: "Jalan Kota, Perak, Malaysia"),
+      "Jalan Kota, Perak, Malaysia"
+    )
+  }
+
   func testRouteSolverEndsAtFarthestEfficientStop() {
     let matrix: [[Double]] = [
       [0, 10, 40, 30],

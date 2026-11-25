@@ -1,4 +1,4 @@
-# RoutePilot iOS — Design System (v1.0.0)
+# RoutePilot iOS — Design System (v1.0.1)
 
 ## Design read
 
@@ -87,7 +87,7 @@ System **SF Pro** only (no bundled font). All styles support Dynamic Type; sizes
 **Secondary button** — `surface` fill, 1 pt divider stroke, `textPrimary` label, same geometry.
 **Text button** — `accentText` label, no fill, used only for tertiary actions in the options sheet.
 
-**Stop card** — solid `surface`, 20 pt radius, 20 pt padding. Content order: sequence number (tabular, accent text), label or address (title), address (subheadline, secondary), then status pill. One primary action (Done) inline; everything else lives in the detail sheet.
+**Stop card** — solid `surface`, 20 pt radius, 20 pt padding. Content order: sequence number (tabular, accent text), label or address (title), address (subheadline, secondary), then a **static mini-map preview** (one pin, no route line, 88 pt tall, 12 pt radius), then status pill. Unresolved addresses get a neutral "Location not found" placeholder instead of a pin. One primary action (Done) inline; everything else lives in the detail sheet. Cards grow with their content; the list uses a single scroll container and never sets a fixed height.
 
 **Filter chips** — All / Pending / Done / Failed. Selected: charcoal fill with warm white text. Unselected: `surfaceMuted` fill with `textPrimary` text. Failed chip carries a small exclamation symbol.
 
@@ -111,7 +111,7 @@ System **SF Pro** only (no bundled font). All styles support Dynamic Type; sizes
 
 Four tabs: **Route, Scan, Map, Archive**.
 
-- **Route** — progress hero, Scan / Navigate all buttons, filter chips, stop cards. Ellipsis button opens the options sheet: Summary, Backup, Restore, AI settings, Reset.
+- **Route** — progress hero, Scan / Navigate all / **Open in Google Maps** buttons, filter chips, stop cards. Ellipsis button opens the options sheet: Summary, Open in Google Maps, Backup, Restore, AI settings, Reset.
 - **Scan** — camera entry point and the AI/Vision scan flow.
 - **Map** — full-screen MapKit route view.
 - **Archive** — completed routes, read-only.
@@ -128,7 +128,11 @@ Exceptions are the **Failed** filter on the Route tab, not a separate tab. Backu
 3. Two primary buttons: **Scan label**, **Navigate all stops**.
 4. Secondary row: **Import CSV**, **Add stop**, **Optimize now**.
 5. Filter chips: All, Pending, Done, Failed.
-6. Stop cards, sorted by `orderIndex`. Estimated coordinates show an inline "Coordinates estimated by AI — check the address" note in `error`.
+6. Stop cards, sorted by `orderIndex`, each with a static mini-map preview. Unresolved addresses show "Address not found — tap to edit" in `error`; never an estimated-coordinate pin.
+7. The whole tab is one `ScrollView`. The stop list is a `LazyVStack`, not a nested `List`; no fixed row height, no disabled scrolling.
+
+### Maps handoff sheet
+Google Maps allows at most nine waypoints per URL. Pending stops are split into batches of nine. The sheet is titled "Open route in Google Maps", shows "N batches of up to 9 stops", the current tally "Batch 1 of N", and buttons **Open batch** and **Next batch**. Each batch opens one URL with `travelmode=driving` and `dir_action=navigate`; unresolved stops contribute their address text, never fabricated coordinates.
 
 ### Scan flow
 1. Camera or photo-library entry, with a rounded white guide frame.
@@ -138,7 +142,7 @@ Exceptions are the **Failed** filter on the Route tab, not a separate tab. Backu
 5. Duplicate tracking IDs offer "Add anyway" / "Skip".
 
 ### Stop detail sheet
-Editable recipient, address, postcode, phone, window start/end and notes. Reorder via drag handle plus up/down buttons. Actions: Navigate, Done, Failed (with reason and note), Pin.
+Editable recipient, address, postcode, phone, window start/end and notes. Reorder via up/down buttons only. Actions: Navigate, Done, Failed (with reason and note), Pin.
 
 ### Map screen
 Full-screen map with numbered burnt-orange markers and a polyline in `#C2410C`. Glass stats panel at the bottom. Recalculate rebuilds the OSRM route; Recenter returns to the user's location.
@@ -147,7 +151,10 @@ Full-screen map with numbered burnt-orange markers and a polyline in `#C2410C`. 
 List of archived routes with date and stop counts. Read-only.
 
 ### Loading screen
-A route line draws itself between two pins over 800 ms, then cross-fades into the Route tab. Wordmark "RoutePilot" and the tagline "Your route, sorted." sit below the mark. Minimum visible duration: 800 ms; dismiss as soon as local data is ready. No infinite loops.
+A route line draws itself between two pins over 800 ms. Both pins sit exactly at the path endpoints: lower-left `(24, 104)` and upper-right `(166, 22)` in the 190 × 120 animation frame. Then the view cross-fades into the Route tab. Wordmark "RoutePilot" and the tagline "Your route, sorted." sit below the mark. Minimum visible duration: 800 ms; dismiss as soon as local data is ready. No infinite loops.
+
+### App switcher cover
+When the app enters the background, a branded cover replaces the last screen: charcoal background, the chosen logo mark, wordmark "RoutePilot" and "Your route, sorted." This makes the switcher card show the brand and hides address data. It disappears when the app becomes active again.
 
 ---
 
@@ -171,7 +178,9 @@ A route line draws itself between two pins over 800 ms, then cross-fades into th
 | Error (scan) | "Couldn't read the label. Try again or enter the address manually." |
 | Offline | "You're offline. Stops are saved on this device; route optimisation will run when you reconnect." |
 | Success (save) | "Stop added." |
-| Geocode estimate | "Coordinates estimated by AI — check the address." |
+| Unresolved address | "Address not found — tap to edit." |
+| Maps batches | "N batches of up to 9 stops." |
+| Reset confirm | "Pending N · Done N · Failed N. The route will be archived and a new empty route started." |
 
 Keep sentences short and literal. No exclamation marks, no "Oops", no emoji.
 
@@ -180,11 +189,11 @@ Keep sentences short and literal. No exclamation marks, no "Oops", no emoji.
 ## 10. Feature behaviour in v1.0
 
 - **Recognition**: AI first via lucif.ai; automatic Apple Vision fallback on missing key, error or offline. Source badge on confirm.
-- **Geocoding**: Nominatim first; AI coordinate estimate fallback, flagged on the card.
+- **Geocoding**: Nominatim first, then Apple `CLGeocoder`; no AI coordinates at all. Addresses without a country hint are looked up with ", Taiping, Perak, Malaysia" appended; the stored address text is unchanged. Unresolved stops stay in the list with a badge and no map pin. On upgrade, previously AI-estimated coordinates are cleared and re-geocoded.
 - **Optimisation**: OSRM road durations; open-path solver; end at the farthest efficient stop. "Optimize now" is always available.
 - **Delivery windows**: editable on Add Stop and detail; local notification 30 minutes before a window opens; permission requested on first windowed save.
-- **Reorder**: drag handle in the list plus up/down buttons in detail (accessibility path).
-- **Maps handoff**: Google Maps URLs, chunks of 9 stops, `travelmode=driving` and `dir_action=navigate`.
+- **Reorder**: up/down buttons in the detail sheet only, so the list can scroll naturally.
+- **Maps handoff**: a visible Route button plus an options entry opens a batch sheet; batches of 9 are opened one at a time with a tally, using `travelmode=driving` and `dir_action=navigate`.
 - **Data**: local SwiftData only. JSON backup and restore via the options sheet. No account, no sync, no backend.
 
 ---
@@ -214,7 +223,7 @@ Source artwork: `design-assets/icon-source.png` (the chosen parcel + route-pin m
 
 ---
 
-## 14. Acceptance checklist for v1.0.0
+## 14. Acceptance checklist for v1.0.1
 
 - [ ] CI build green from the release commit, producing a valid unsigned IPA.
 - [ ] Unit tests green for label parsing, CSV parsing and route ordering.
@@ -222,8 +231,14 @@ Source artwork: `design-assets/icon-source.png` (the chosen parcel + route-pin m
 - [ ] Scanned stops attach to the active route and appear immediately.
 - [ ] Vision fallback works with no AI key and shows the correct source badge.
 - [ ] Delivery-window notification fires 30 minutes early.
-- [ ] Drag and up/down reorder both persist.
+- [ ] Up/down reorder persists; the stop list scrolls to the last card at Accessibility Large.
+- [ ] No AI-estimated coordinates: Nominatim/Apple only; old bad pins cleared on upgrade.
+- [ ] Each stop card shows a one-pin mini map or an unresolved placeholder.
+- [ ] Maps batch sheet opens every chunk with a visible tally.
 - [ ] Backup and restore round-trip on device.
 - [ ] Light and dark mode, Dynamic Type and VoiceOver checked on iPhone.
 - [ ] Custom icon present; loading animation runs 800 ms then cross-fades.
+- [ ] Reset route shows a confirmation with counts and actually archives/starts a new route.
+- [ ] Loading pins sit exactly on the drawn route endpoints.
+- [ ] App switcher shows the branded cover.
 - [ ] Full device walkthrough completed by the owner.
