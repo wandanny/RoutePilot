@@ -1,4 +1,4 @@
-# RoutePilot for iPhone (SwiftUI) — v1.0.5
+# RoutePilot for iPhone (SwiftUI) — v1.0.6
 
 A native iOS rebuild of the Android courier route helper. It is **not** an APK wrapper. It is signed and sideloaded with a free Apple ID — no paid Apple Developer Program.
 
