@@ -368,19 +368,25 @@ enum TomTomClient {
 
   static func table(origin: (Double, Double), stops: [(Double, Double)]) async -> [[Double]]? {
     let key = KeychainStore.read(key: "tomtom_api_key")
-    guard !key.isEmpty, var components = URLComponents(string: "https://api.tomtom.com/routing/1/matrix/json") else { return nil }
-    let locations = ([origin] + stops).map { "\($0.0),\($0.1)" }.joined(separator: ":")
-    components.queryItems = [
-      URLQueryItem(name: "key", value: key),
-      URLQueryItem(name: "locations", value: locations),
-      URLQueryItem(name: "travelMode", value: "car"),
-      URLQueryItem(name: "routeType", value: "fastest"),
-    ]
-    guard let data = await fetch(components),
+    guard !key.isEmpty, let url = URL(string: "https://api.tomtom.com/routing/1/matrix/json?key=\(key)") else { return nil }
+    let points = ([origin] + stops).map { ["point": ["latitude": $0.0, "longitude": $0.1] as [String: Double]] }
+    let body: [String: Any] = ["origins": points, "destinations": points]
+    guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = payload
+    guard let (data, _) = try? await URLSession.shared.data(for: request),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let matrices = json["matrices"] as? [[String: Any]],
-          let durations = matrices.first?["durationsInSeconds"] as? [[Double]],
-          !durations.isEmpty else { return nil }
+          let matrix = json["matrix"] as? [[[String: Any]]],
+          !matrix.isEmpty else { return nil }
+    let durations = matrix.map { row in
+      row.map { cell -> Double in
+        guard let response = cell["response"] as? [String: Any],
+              let summary = response["routeSummary"] as? [String: Any] else { return 0 }
+        return summary["travelTimeInSeconds"] as? Double ?? 0
+      }
+    }
     return durations
   }
 
