@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Security
 
 // MARK: - Secure settings
 
@@ -146,9 +147,10 @@ enum LucifClient {
       "messages": [["role": "user", "content": "Estimate latitude and longitude for: \(address). Return ONLY JSON {\"lat\":number,\"lon\":number}"]],
     ]
     let content = try await chat(body, key: key)
-    guard let json = extractJSON(content),
-          let lat = json["lat"] as? Double ?? (json["lat"] as? String).flatMap(Double.init),
-          let lon = json["lon"] as? Double ?? (json["lon"] as? String).flatMap(Double.init) else { return nil }
+    guard let json = extractJSON(content) else { return nil }
+    let lat = (json["lat"] as? Double) ?? ((json["lat"] as? String).flatMap { Double($0) })
+    let lon = (json["lon"] as? Double) ?? ((json["lon"] as? String).flatMap { Double($0) })
+    guard let lat, let lon else { return nil }
     return (lat, lon)
   }
 
@@ -189,8 +191,8 @@ enum Nominatim {
     guard let (data, _) = try? await URLSession.shared.dataTask(for: request),
           let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
           let first = array.first,
-          let lat = Double(first["lat"] as? String ?? ""),
-          let lon = Double(first["lon"] as? String ?? "") else { return nil }
+          let lat = Double((first["lat"] as? String) ?? ""),
+          let lon = Double((first["lon"] as? String) ?? "") else { return nil }
     return (lat, lon)
   }
 }
@@ -255,9 +257,12 @@ enum RouteSolver {
         current = next
       }
       order.append(last)
-      let total = order.reduce((cost: 0.0, at: 0)) { acc, next in
-        (acc.cost + cost(acc.at, next), next)
-      }.cost
+      var total = 0.0
+      var at = 0
+      for next in order {
+        total += cost(at, next)
+        at = next
+      }
       if total < bestCost { bestCost = total; best = order }
     }
     return best

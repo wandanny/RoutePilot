@@ -3,6 +3,7 @@ import SwiftData
 import MapKit
 import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Location
 
