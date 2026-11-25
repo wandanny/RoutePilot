@@ -135,6 +135,7 @@ struct ContentView: View {
   @AppStorage("routepilot.restrict_area") private var restrictArea = false
   @Query private var allRoutes: [RouteRecord]
   @Query private var allStops: [StopRecord]
+  @Query private var cacheEntries: [GeocodeCacheEntry]
 
   @State private var tab = 0
   @State private var ready = false
@@ -192,6 +193,7 @@ struct ContentView: View {
         try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
       }
       ready = true
+      Task { _ = await LocalAddressIndex.shared.refreshIfNeeded(force: false) }
       if !notificationsAllowed {
         message = "Notifications are off. Delivery-window alerts won't appear until you allow them in Settings."
       }
@@ -569,6 +571,31 @@ struct ContentView: View {
     for (i, item) in reordered.enumerated() { item.orderIndex = i }
   }
 
+  private func resolvePoint(for address: String, origin: (Double, Double)?) async -> ((Double, Double), String)? {
+    let key = AddressNormalizer.key(address)
+    if let cached = cacheEntries.first(where: { $0.key == key }) {
+      return ((cached.latitude, cached.longitude), cached.source)
+    }
+    if let local = LocalAddressIndex.shared.lookup(address) {
+      saveCache(key: key, point: local, source: "Local index")
+      return (local, "Local index")
+    }
+    if let point = await Geocoder.resolve(address, restrictToArea: restrictArea, origin: origin) {
+      saveCache(key: key, point: point, source: "Online")
+      return (point, "Online")
+    }
+    return nil
+  }
+
+  private func saveCache(key: String, point: (Double, Double), source: String) {
+    context.insert(GeocodeCacheEntry(
+      key: key,
+      latitude: point.0,
+      longitude: point.1,
+      source: source
+    ))
+  }
+
   private func optimize(silent: Bool) async {
     await MainActor.run { busy = true }
     let origin = LocationProvider.shared.current()
@@ -576,9 +603,9 @@ struct ContentView: View {
     var geocoded: [(stop: StopRecord, point: (Double, Double))] = []
     for stop in pending {
       if stop.latitude == nil || stop.longitude == nil,
-         let point = await Geocoder.resolve(stop.address, restrictToArea: restrictArea, origin: origin) {
-        stop.latitude = point.0
-        stop.longitude = point.1
+         let resolved = await resolvePoint(for: stop.address, origin: origin) {
+        stop.latitude = resolved.0.0
+        stop.longitude = resolved.0.1
       }
       if let lat = stop.latitude, let lon = stop.longitude {
         geocoded.append((stop: stop, point: (lat, lon)))
@@ -887,6 +914,11 @@ struct SummaryView: View {
             }
           }
         }
+        Section("About") {
+          Text("Map data © OpenStreetMap contributors, available under ODbL. RoutePilot stores all route data on this device.")
+            .font(.system(size: 13))
+            .foregroundStyle(RP.secondary(scheme))
+        }
       }
       .listStyle(.insetGrouped)
       .scrollContentBackground(.hidden)
@@ -1074,13 +1106,16 @@ struct AiSettingsView: View {
 struct MapsSettingsView: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.modelContext) private var context
+  @Query private var cachedEntries: [GeocodeCacheEntry]
   @State private var key = ""
+  @State private var status = ""
 
   var body: some View {
     NavigationStack {
       Form {
         SecureField("TomTom API key", text: $key)
-        Text("Free key from developer.tomtom.com. Stored in the iOS Keychain and used for geocoding and road routing. Leave blank to use Apple and OpenStreetMap instead.")
+        Text("Free key from developer.tomtom.com. Stored in the iOS Keychain and used only when the local address index has no match. Leave blank to stay offline-first.")
           .font(.system(size: 14))
           .foregroundStyle(RP.secondary(scheme))
         Button("Save") {
@@ -1093,6 +1128,29 @@ struct MapsSettingsView: View {
             key = ""
           }
           .foregroundStyle(RP.error(scheme))
+        }
+
+        Section("Offline address index") {
+          Text("\(LocalAddressIndex.shared.count) local addresses for Taiping, Kamunting and Simpang. Checked weekly; about 400 KB when updated.")
+            .font(.system(size: 14))
+            .foregroundStyle(RP.secondary(scheme))
+          Button("Check for updates") {
+            Task {
+              let updated = await LocalAddressIndex.shared.refreshIfNeeded(force: true)
+              status = updated ? "Address index updated." : "Already up to date."
+            }
+          }
+          Button("Clear geocode cache (\(cachedEntries.count))") {
+            for entry in cachedEntries { context.delete(entry) }
+            status = "Geocode cache cleared."
+          }
+          .foregroundStyle(RP.error(scheme))
+          if !status.isEmpty {
+            Text(status).font(.system(size: 14)).foregroundStyle(RP.secondary(scheme))
+          }
+          Text("Map data © OpenStreetMap contributors, available under ODbL.")
+            .font(.system(size: 13))
+            .foregroundStyle(RP.secondary(scheme))
         }
       }
       .scrollContentBackground(.hidden)

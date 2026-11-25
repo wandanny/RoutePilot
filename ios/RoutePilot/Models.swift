@@ -101,6 +101,31 @@ final class StopRecord {
 extension RouteRecord: Identifiable {}
 extension StopRecord: Identifiable {}
 
+@Model
+final class GeocodeCacheEntry {
+  var key: String
+  var latitude: Double
+  var longitude: Double
+  var source: String
+  var createdAt: Date
+
+  init(key: String, latitude: Double, longitude: Double, source: String, createdAt: Date = Date()) {
+    self.key = key
+    self.latitude = latitude
+    self.longitude = longitude
+    self.source = source
+    self.createdAt = createdAt
+  }
+}
+
+struct AddressEntry: Codable {
+  var a: String
+  var n: String
+  var p: String
+  var y: Double
+  var x: Double
+}
+
 struct BackupPayload: Codable {
   var routes: [RouteDTO]
   var stops: [StopDTO]

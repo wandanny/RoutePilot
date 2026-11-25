@@ -7,6 +7,6 @@ struct RoutePilotApp: App {
     WindowGroup {
       ContentView()
     }
-    .modelContainer(for: [RouteRecord.self, StopRecord.self], isAutosaveEnabled: true)
+    .modelContainer(for: [RouteRecord.self, StopRecord.self, GeocodeCacheEntry.self], isAutosaveEnabled: true)
   }
 }

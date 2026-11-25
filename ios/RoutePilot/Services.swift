@@ -128,6 +128,30 @@ enum CsvParser {
   }
 }
 
+// MARK: - Address normalization
+
+enum AddressNormalizer {
+  private static let ignored = Set(["no", "taiping", "kamunting", "simpang", "perak", "malaysia"])
+
+  static func normalize(_ text: String) -> String {
+    let lower = text.lowercased()
+    let cleaned = lower.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+    return cleaned.split(separator: " ").joined(separator: " ")
+  }
+
+  static func key(_ text: String) -> String {
+    let cleaned = normalize(text)
+    let parts = cleaned.split(separator: " ").filter { token in
+      !ignored.contains(token) && !(token.count == 5 && token.allSatisfy(\.isNumber))
+    }
+    return parts.joined(separator: " ")
+  }
+
+  static func postcode(_ text: String) -> String? {
+    normalize(text).split(separator: " ").first { $0.count == 5 && $0.allSatisfy(\.isNumber) }.map(String.init)
+  }
+}
+
 // MARK: - On-device OCR
 
 enum DeviceOCR {
