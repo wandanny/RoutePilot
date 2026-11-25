@@ -154,6 +154,7 @@ struct ContentView: View {
         onBackup: { backupData = makeBackup(); showExportBackup = true },
         onRestore: { showImportBackup = true },
         onSettings: { showSettings = true },
+        onMaps: { openMaps() },
         onReset: { showReset = true },
         onClose: { showOptions = false }
       )
@@ -523,6 +524,30 @@ struct ContentView: View {
     }
   }
 
+  private func openMaps() {
+    let pending = stops.filter { $0.status == .pending }
+    guard !pending.isEmpty else { message = "No pending stops"; return }
+    let chunks = stride(from: 0, to: pending.count, by: 9).map { offset in
+      Array(pending[offset..<Swift.min(offset + 9, pending.count)])
+    }
+    guard let first = chunks.first, var components = URLComponents(string: "https://www.google.com/maps/dir/") else { return }
+    let origin = LocationProvider.shared.current()
+    let place: (StopRecord) -> String = { stop in
+      if let lat = stop.latitude, let lon = stop.longitude { return "\(lat),\(lon)" }
+      return stop.address
+    }
+    var query = [URLQueryItem(name: "api", value: "1")]
+    if let origin { query.append(URLQueryItem(name: "origin", value: "\(origin.0),\(origin.1)")) }
+    query.append(URLQueryItem(name: "destination", value: place(first[first.count - 1])))
+    if first.count > 1 {
+      query.append(URLQueryItem(name: "waypoints", value: first.dropLast().map(place).joined(separator: "|")))
+    }
+    query.append(URLQueryItem(name: "travelmode", value: "driving"))
+    query.append(URLQueryItem(name: "dir_action", value: "navigate"))
+    components.queryItems = query
+    if let url = components.url { UIApplication.shared.open(url) }
+  }
+
   private func resetRoute() {
     activeRoute?.active = false
     ensureRoute()
@@ -575,6 +600,7 @@ struct OptionsSheet: View {
   let onBackup: () -> Void
   let onRestore: () -> Void
   let onSettings: () -> Void
+  let onMaps: () -> Void
   let onReset: () -> Void
   let onClose: () -> Void
 
@@ -582,6 +608,7 @@ struct OptionsSheet: View {
     NavigationStack {
       List {
         row("Summary", symbol: "chart.bar") { run(onSummary) }
+        row("Open in Maps", symbol: "map") { run(onMaps) }
         row("Backup", symbol: "square.and.arrow.up") { run(onBackup) }
         row("Restore", symbol: "square.and.arrow.down") { run(onRestore) }
         row("AI settings", symbol: "key") { run(onSettings) }
@@ -925,6 +952,7 @@ struct StopDetailSheet: View {
             }
             SecondaryButton(title: "Failed") { stop.status = .failed; stop.failureReason = .notHome; onClose() }
             SecondaryButton(title: "Navigate") { onNavigate() }
+            SecondaryButton(title: stop.pinned ? "Unpin stop" : "Pin stop") { stop.pinned.toggle() }
           }
 
           HStack(spacing: 8) {
