@@ -154,10 +154,16 @@ enum DeviceOCR {
 // MARK: - Notifications
 
 enum NotificationScheduler {
-  static func requestPermission() async {
-    guard let granted = try? await UNUserNotificationCenter.current()
-      .requestAuthorization(options: [.alert, .sound, .badge]) else { return }
+  static func requestPermission() async -> Bool {
+    let center = UNUserNotificationCenter.current()
+    let settings = await center.notificationSettings()
+    if settings.authorizationStatus != .notDetermined {
+      if settings.authorizationStatus == .authorized { configure() }
+      return settings.authorizationStatus == .authorized
+    }
+    guard let granted = try? await center.requestAuthorization(options: [.alert, .sound, .badge]) else { return false }
     if granted { configure() }
+    return granted
   }
 
   static func configure() {
@@ -264,28 +270,44 @@ enum LucifClient {
 // MARK: - Geocoding and routing
 
 enum AddressSupport {
-  static let regionHint = ", Taiping, Perak, Malaysia"
+  static let maxAreaDistance: CLLocationDistance = 50_000
 
-  static func lookupText(for address: String) -> String {
-    let lower = address.lowercased()
-    if lower.contains("malaysia") || lower.contains(", perak") { return address }
-    return address + regionHint
+  static func isPlausible(latitude: Double, longitude: Double, near origin: (Double, Double)?) -> Bool {
+    guard let origin else { return true }
+    let point = CLLocation(latitude: latitude, longitude: longitude)
+    let centre = CLLocation(latitude: origin.0, longitude: origin.1)
+    return point.distance(from: centre) <= maxAreaDistance
   }
 }
 
 enum AppleGeocoder {
   static func geocode(_ address: String) async -> (Double, Double)? {
-    let request = CLGeocoder()
-    guard let placemark = try? await request.geocodeAddressString(AddressSupport.lookupText(for: address)),
+    let geocoder = CLGeocoder()
+    guard let placemark = try? await geocoder.geocodeAddressString(address),
           let location = placemark.first?.location else { return nil }
     return (location.coordinate.latitude, location.coordinate.longitude)
   }
 }
 
 enum Nominatim {
-  static func geocode(_ address: String) async -> (Double, Double)? {
-    guard let query = AddressSupport.lookupText(for: address).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-          let url = URL(string: "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=\(query)") else { return nil }
+  static func geocode(_ address: String, structured: Bool = false) async -> (Double, Double)? {
+    var components = URLComponents(string: "https://nominatim.openstreetmap.org/search")!
+    var items = [
+      URLQueryItem(name: "format", value: "json"),
+      URLQueryItem(name: "limit", value: "1"),
+    ]
+    if structured {
+      items += [
+        URLQueryItem(name: "street", value: address),
+        URLQueryItem(name: "city", value: "Taiping"),
+        URLQueryItem(name: "state", value: "Perak"),
+        URLQueryItem(name: "country", value: "Malaysia"),
+      ]
+    } else {
+      items.append(URLQueryItem(name: "q", value: address))
+    }
+    components.queryItems = items
+    guard let url = components.url else { return nil }
     var request = URLRequest(url: url)
     request.setValue("RoutePilot/1.0 (courier route helper)", forHTTPHeaderField: "User-Agent")
     guard let (data, _) = try? await URLSession.shared.data(for: request),
@@ -295,6 +317,17 @@ enum Nominatim {
     let lon = (first["lon"] as? String).flatMap { Double($0) }
     guard let lat, let lon else { return nil }
     return (lat, lon)
+  }
+}
+
+enum Geocoder {
+  static func resolve(_ address: String, restrictToArea: Bool, origin: (Double, Double)?) async -> (Double, Double)? {
+    let acceptable: (Double, Double) -> Bool = { lat, lon in
+      !restrictToArea || AddressSupport.isPlausible(latitude: lat, longitude: lon, near: origin)
+    }
+    if let point = await AppleGeocoder.geocode(address), acceptable(point.0, point.1) { return point }
+    if let point = await Nominatim.geocode(address, structured: restrictToArea), acceptable(point.0, point.1) { return point }
+    return nil
   }
 }
 

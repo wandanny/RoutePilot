@@ -1,4 +1,4 @@
-# RoutePilot iOS — Design System (v1.0.1)
+# RoutePilot iOS — Design System (v1.0.2)
 
 ## Design read
 
@@ -111,7 +111,7 @@ System **SF Pro** only (no bundled font). All styles support Dynamic Type; sizes
 
 Four tabs: **Route, Scan, Map, Archive**.
 
-- **Route** — progress hero, Scan / Navigate all / **Open in Google Maps** buttons, filter chips, stop cards. Ellipsis button opens the options sheet: Summary, Open in Google Maps, Backup, Restore, AI settings, Reset.
+- **Route** — progress hero, Scan / Navigate all / **Open in Google Maps** buttons, filter chips, stop cards. Ellipsis button opens the options sheet: Summary, Open in Google Maps, Backup, Restore, AI settings, "Restrict stops to current area" toggle, Reset.
 - **Scan** — camera entry point and the AI/Vision scan flow.
 - **Map** — full-screen MapKit route view.
 - **Archive** — completed routes, read-only.
@@ -151,7 +151,7 @@ Full-screen map with numbered burnt-orange markers and a polyline in `#C2410C`. 
 List of archived routes with date and stop counts. Read-only.
 
 ### Loading screen
-A route line draws itself between two pins over 800 ms. Both pins sit exactly at the path endpoints: lower-left `(24, 104)` and upper-right `(166, 22)` in the 190 × 120 animation frame. Then the view cross-fades into the Route tab. Wordmark "RoutePilot" and the tagline "Your route, sorted." sit below the mark. Minimum visible duration: 800 ms; dismiss as soon as local data is ready. No infinite loops.
+A route line draws itself between two pins over 800 ms. Both pins sit exactly at the path endpoints: lower-left `(24, 104)` and upper-right `(166, 22)` in the 190 × 120 animation frame. The loading screen stays up while location and notification permissions are requested and answered, with an 800 ms minimum; then it cross-fades into the Route tab. Wordmark "RoutePilot" and the tagline "Your route, sorted." sit below the mark. A denied permission never blocks entry — one short guidance message appears after launch. No infinite loops.
 
 ### App switcher cover
 When the app enters the background, a branded cover replaces the last screen: charcoal background, the chosen logo mark, wordmark "RoutePilot" and "Your route, sorted." This makes the switcher card show the brand and hides address data. It disappears when the app becomes active again.
@@ -189,8 +189,8 @@ Keep sentences short and literal. No exclamation marks, no "Oops", no emoji.
 ## 10. Feature behaviour in v1.0
 
 - **Recognition**: AI first via lucif.ai; automatic Apple Vision fallback on missing key, error or offline. Source badge on confirm.
-- **Geocoding**: Nominatim first, then Apple `CLGeocoder`; no AI coordinates at all. Addresses without a country hint are looked up with ", Taiping, Perak, Malaysia" appended; the stored address text is unchanged. Unresolved stops stay in the list with a badge and no map pin. On upgrade, previously AI-estimated coordinates are cleared and re-geocoded.
-- **Optimisation**: OSRM road durations; open-path solver; end at the farthest efficient stop. "Optimize now" is always available.
+- **Geocoding**: Apple `CLGeocoder` first, Nominatim fallback; no AI coordinates at all. "Restrict stops to current area" is OFF by default so test labels from other cities still work; when ON, results more than 50 km from current GPS are rejected and Nominatim uses structured Taiping/Perak fields. Unresolved stops stay in the list with a badge and no map pin. On upgrade, previously AI-estimated coordinates are cleared and re-geocoded.
+- **Optimisation**: OSRM road durations; open-path solver; end at the farthest efficient stop. Solver indices map to the geocoded subset only; unresolved stops are appended at the end in original order. Launch-time optimization is silent — result messages appear only on manual "Optimize now" / "Navigate all". If OSRM is unavailable the map draws a straight polyline through the geocoded stops.
 - **Delivery windows**: editable on Add Stop and detail; local notification 30 minutes before a window opens; permission requested on first windowed save.
 - **Reorder**: up/down buttons in the detail sheet only, so the list can scroll naturally.
 - **Maps handoff**: a visible Route button plus an options entry opens a batch sheet; batches of 9 are opened one at a time with a tally, using `travelmode=driving` and `dir_action=navigate`.
@@ -223,7 +223,7 @@ Source artwork: `design-assets/icon-source.png` (the chosen parcel + route-pin m
 
 ---
 
-## 14. Acceptance checklist for v1.0.1
+## 14. Acceptance checklist for v1.0.2
 
 - [ ] CI build green from the release commit, producing a valid unsigned IPA.
 - [ ] Unit tests green for label parsing, CSV parsing and route ordering.
@@ -241,4 +241,7 @@ Source artwork: `design-assets/icon-source.png` (the chosen parcel + route-pin m
 - [ ] Reset route shows a confirmation with counts and actually archives/starts a new route.
 - [ ] Loading pins sit exactly on the drawn route endpoints.
 - [ ] App switcher shows the branded cover.
+- [ ] No routing warning appears on launch; straight-line map fallback works.
+- [ ] Area restriction toggle defaults off and rejects far results when on.
+- [ ] Permissions are requested during loading and denial does not block entry.
 - [ ] Full device walkthrough completed by the owner.

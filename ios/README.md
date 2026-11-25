@@ -1,4 +1,4 @@
-# RoutePilot for iPhone (SwiftUI) — v1.0.0
+# RoutePilot for iPhone (SwiftUI) — v1.0.2
 
 A native iOS rebuild of the Android courier route helper. It is **not** an APK wrapper. It is signed and sideloaded with a free Apple ID — no paid Apple Developer Program.
 
@@ -36,7 +36,7 @@ No Mac is needed on your side. The Windows development machine cannot compile Sw
 - JSON backup and restore via the Route options sheet. Data stays local; no account, backend or sync.
 - Custom app icon, iOS-specific route-line loading animation, full light/dark mode, Dynamic Type, VoiceOver and 48 pt targets.
 
-CSV export is intentionally out of scope for v1.0.
+v1.0.2 adds Apple-first geocoding with an optional 50 km area restriction (off by default so public test labels from other cities still work), silent launch-time optimization, a straight-line map fallback when OSRM is down, correct solver ordering when some stops are unresolved, and permission requests held on the loading screen. CSV export is intentionally out of scope for v1.0.
 
 ## Distribution
 

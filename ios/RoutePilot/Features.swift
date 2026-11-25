@@ -11,6 +11,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
   static let shared = LocationProvider()
   private let manager = CLLocationManager()
   private var last: CLLocation?
+  private var authorizationCompletion: (() -> Void)?
 
   override init() {
     super.init()
@@ -18,9 +19,32 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     manager.desiredAccuracy = kCLLocationAccuracyBest
   }
 
-  func request() {
+  func requestAuthorization(completion: @escaping () -> Void) {
+    if manager.authorizationStatus != .notDetermined {
+      completion()
+      return
+    }
+    authorizationCompletion = completion
     manager.requestWhenInUseAuthorization()
-    manager.startUpdatingLocation()
+  }
+
+  func request() {
+    if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+      manager.startUpdatingLocation()
+    } else {
+      manager.requestWhenInUseAuthorization()
+    }
+  }
+
+  func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    if manager.authorizationStatus != .notDetermined {
+      let completion = authorizationCompletion
+      authorizationCompletion = nil
+      completion?()
+    }
+    if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+      manager.startUpdatingLocation()
+    }
   }
 
   func current() -> (Double, Double)? {
@@ -108,6 +132,7 @@ struct ContentView: View {
   @Environment(\.modelContext) private var context
   @Environment(\.colorScheme) private var scheme
   @Environment(\.scenePhase) private var scenePhase
+  @AppStorage("routepilot.restrict_area") private var restrictArea = false
   @Query private var allRoutes: [RouteRecord]
   @Query private var allStops: [StopRecord]
 
@@ -154,16 +179,21 @@ struct ContentView: View {
     }
     .task {
       let start = Date()
-      LocationProvider.shared.request()
+      await withCheckedContinuation { continuation in
+        LocationProvider.shared.requestAuthorization { continuation.resume() }
+      }
+      let notificationsAllowed = await NotificationScheduler.requestPermission()
       migrateEstimatedCoordinates()
       ensureRoute()
-      Task { await NotificationScheduler.requestPermission() }
-      Task { await optimize() }
+      await optimize(silent: true)
       let elapsed = Date().timeIntervalSince(start)
       if elapsed < 0.8 {
         try? await Task.sleep(nanoseconds: UInt64((0.8 - elapsed) * 1_000_000_000))
       }
       ready = true
+      if !notificationsAllowed {
+        message = "Notifications are off. Delivery-window alerts won't appear until you allow them in Settings."
+      }
     }
     .sheet(isPresented: $showScan) {
       ScanView(
@@ -198,7 +228,8 @@ struct ContentView: View {
         onClose: { showOptions = false },
         pendingCount: stops.filter { $0.status == .pending }.count,
         doneCount: stops.filter { $0.status == .done }.count,
-        failedCount: stops.filter { $0.status == .failed }.count
+        failedCount: stops.filter { $0.status == .failed }.count,
+        restrictArea: $restrictArea
       )
     }
     .sheet(isPresented: $showSummary) { SummaryView(stops: stops, onClose: { showSummary = false }) }
@@ -306,14 +337,14 @@ struct ContentView: View {
             else { showScan = true }
           }
           PrimaryButton(title: "Navigate all", systemImage: "navigation") {
-            Task { await optimize(); tab = 2 }
+            Task { await optimize(silent: false); tab = 2 }
           }
         }
 
         HStack(spacing: 8) {
           SecondaryButton(title: "Import CSV") { importCSV = true }
           SecondaryButton(title: "Add stop") { showAdd = true }
-          SecondaryButton(title: "Optimize now") { Task { await optimize() } }
+          SecondaryButton(title: "Optimize now") { Task { await optimize(silent: false) } }
         }
 
         PrimaryButton(title: "Open in Google Maps", systemImage: "arrow.up.forward.app") {
@@ -477,7 +508,7 @@ struct ContentView: View {
     context.insert(stop)
     NotificationScheduler.schedule(label: label.isEmpty ? fullAddress : label, windowStart: windowStart, stopID: stop.id)
     message = RP.Copy.saved
-    Task { await optimize() }
+    Task { await optimize(silent: true) }
   }
 
   private func importStops(_ text: String) {
@@ -507,20 +538,20 @@ struct ContentView: View {
       count += 1
     }
     message = "Imported \(count) stops"
-    Task { await optimize() }
+    Task { await optimize(silent: true) }
   }
 
   private func complete(_ stop: StopRecord) {
     stop.status = .done
     NotificationScheduler.cancel(stopID: stop.id)
-    Task { await optimize() }
+    Task { await optimize(silent: true) }
   }
 
   private func fail(_ stop: StopRecord) {
     stop.status = .failed
     stop.failureReason = .notHome
     NotificationScheduler.cancel(stopID: stop.id)
-    Task { await optimize() }
+    Task { await optimize(silent: true) }
   }
 
   private func move(_ stop: StopRecord, by direction: Int) {
@@ -535,38 +566,37 @@ struct ContentView: View {
     for (i, item) in reordered.enumerated() { item.orderIndex = i }
   }
 
-  private func optimize() async {
+  private func optimize(silent: Bool) async {
     await MainActor.run { busy = true }
     let origin = LocationProvider.shared.current()
     let pending = stops.filter { $0.status == .pending }
-    var coords: [(Double, Double)] = []
+    var geocoded: [(stop: StopRecord, point: (Double, Double))] = []
     for stop in pending {
-      if stop.latitude == nil || stop.longitude == nil {
-        if let point = await Nominatim.geocode(stop.address) {
-          stop.latitude = point.0
-          stop.longitude = point.1
-        } else if let point = await AppleGeocoder.geocode(stop.address) {
-          stop.latitude = point.0
-          stop.longitude = point.1
-        }
+      if stop.latitude == nil || stop.longitude == nil,
+         let point = await Geocoder.resolve(stop.address, restrictToArea: restrictArea, origin: origin) {
+        stop.latitude = point.0
+        stop.longitude = point.1
       }
-      if let lat = stop.latitude, let lon = stop.longitude { coords.append((lat, lon)) }
-    }
-    guard let start = origin ?? coords.first, coords.count >= 2,
-          let matrix = await Osrm.table(origin: start, stops: coords) else {
-      await MainActor.run {
-        busy = false
-        message = "Road routing unavailable — using straight lines"
+      if let lat = stop.latitude, let lon = stop.longitude {
+        geocoded.append((stop: stop, point: (lat, lon)))
       }
-      return
     }
-    let order = RouteSolver.order(matrix: matrix, stopCount: coords.count)
-    for (index, candidate) in order.enumerated() where pending.indices.contains(candidate) {
-      pending[candidate].orderIndex = index
+    var ordered = geocoded
+    if geocoded.count >= 2,
+       let matrix = await Osrm.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point)) {
+      let solverOrder = RouteSolver.order(matrix: matrix, stopCount: geocoded.count)
+      ordered = solverOrder.compactMap { candidate in
+        candidate > 0 && candidate <= geocoded.count ? geocoded[candidate - 1] : nil
+      }
     }
+    for (index, item) in ordered.enumerated() { item.stop.orderIndex = index }
+    let unresolved = pending.filter { $0.latitude == nil || $0.longitude == nil }
+    for (offset, stop) in unresolved.enumerated() { stop.orderIndex = ordered.count + offset }
     await MainActor.run {
       busy = false
-      message = "Route optimized"
+      if !silent {
+        message = geocoded.count >= 2 ? "Route optimized" : "Road routing unavailable — using straight lines"
+      }
     }
   }
 
@@ -711,6 +741,7 @@ struct OptionsSheet: View {
   let pendingCount: Int
   let doneCount: Int
   let failedCount: Int
+  @Binding var restrictArea: Bool
 
   var body: some View {
     NavigationStack {
@@ -720,6 +751,13 @@ struct OptionsSheet: View {
         row("Backup", symbol: "square.and.arrow.up") { run(onBackup) }
         row("Restore", symbol: "square.and.arrow.down") { run(onRestore) }
         row("AI settings", symbol: "key") { run(onSettings) }
+        Section {
+          Toggle("Restrict stops to current area", isOn: $restrictArea)
+            .font(.system(size: 16))
+          Text("Rejects locations more than 50 km from your current position. Leave off for test labels from other cities.")
+            .font(.system(size: 13))
+            .foregroundStyle(RP.secondary(scheme))
+        }
         row("Reset route", symbol: "arrow.counterclockwise", destructive: true) { showResetAlert = true }
       }
       .listStyle(.insetGrouped)
@@ -1200,7 +1238,11 @@ struct MapScreen: View {
       return (lat, lon)
     }
     guard let origin = LocationProvider.shared.current() ?? coords.first, !coords.isEmpty else { return }
-    route = await Osrm.route(origin: origin, stops: coords)
+    if let road = await Osrm.route(origin: origin, stops: coords) {
+      route = road
+    } else {
+      route = RoutePath(points: [origin] + coords)
+    }
   }
 }
 

@@ -40,15 +40,11 @@ final class ParserTests: XCTestCase {
     XCTAssertEqual(semiRows[0]["label"], "Parcel 2")
   }
 
-  func testAddressLookupAddsRegionHintOnlyWhenNeeded() {
-    XCTAssertEqual(
-      AddressSupport.lookupText(for: "No. 12, Jalan Kota"),
-      "No. 12, Jalan Kota, Taiping, Perak, Malaysia"
-    )
-    XCTAssertEqual(
-      AddressSupport.lookupText(for: "Jalan Kota, Perak, Malaysia"),
-      "Jalan Kota, Perak, Malaysia"
-    )
+  func testAreaValidationRejectsDistantResultsOnlyWhenEnabled() {
+    let taiping = (4.85, 100.74)
+    XCTAssertTrue(AddressSupport.isPlausible(latitude: 4.86, longitude: 100.75, near: taiping))
+    XCTAssertFalse(AddressSupport.isPlausible(latitude: 3.14, longitude: 101.69, near: taiping))
+    XCTAssertTrue(AddressSupport.isPlausible(latitude: 3.14, longitude: 101.69, near: nil))
   }
 
   func testRouteSolverEndsAtFarthestEfficientStop() {
