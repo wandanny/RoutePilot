@@ -26,7 +26,7 @@ final class LocalAddressIndex {
     guard entries.isEmpty else { return }
     let url = documentsIndexURL ?? Bundle.main.url(forResource: "taiping-addresses", withExtension: "jsonl")
     guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-    entries = text.split(separator: "\n").compactMap { line in
+    entries = text.split(separator: Character("\n")).compactMap { line in
       guard let data = line.data(using: .utf8) else { return nil }
       return try? JSONDecoder().decode(AddressEntry.self, from: data)
     }
@@ -38,7 +38,7 @@ final class LocalAddressIndex {
     loadIfNeeded()
     let key = AddressNormalizer.key(address)
     guard !key.isEmpty else { return nil }
-    let tokens = key.split(separator: " ").map(String.init)
+    let tokens = key.split(separator: Character(" ")).map(String.init)
     let hasHouseNumber = tokens.contains { $0.first?.isNumber == true }
     let expectedPostcode = AddressNormalizer.postcode(address)
 
@@ -46,7 +46,7 @@ final class LocalAddressIndex {
     for entry in entries {
       if let expectedPostcode, !entry.p.isEmpty, entry.p != expectedPostcode { continue }
       if hasHouseNumber {
-        let entryTokens = Set(entry.a.split(separator: " ").map(String.init))
+        let entryTokens = Set(entry.a.split(separator: Character(" ")).map(String.init))
         if !entryTokens.isEmpty, tokens.allSatisfy({ entryTokens.contains($0) }) {
           matches.append(entry)
         }
@@ -74,7 +74,7 @@ final class LocalAddressIndex {
     guard let (data, _) = try? await URLSession.shared.data(from: indexURL),
           let text = String(data: data, encoding: .utf8),
           let destination = documentsIndexURL else { return false }
-    let decoded = text.split(separator: "\n").compactMap { line -> AddressEntry? in
+    let decoded = text.split(separator: Character("\n")).compactMap { line -> AddressEntry? in
       guard let lineData = line.data(using: .utf8) else { return nil }
       return try? JSONDecoder().decode(AddressEntry.self, from: lineData)
     }
