@@ -1,0 +1,23 @@
+# Gradle / Android build outputs
+app/.gradle/
+app/build/
+app/app/build/
+app/local.properties
+app/.idea/
+*.iml
+
+# iOS build output
+ios/build/
+ios/RoutePilot.xcodeproj/
+*.xcarchive
+*.ipa
+*.xcuserdata
+.DS_Store
+
+# Screenshots at project root (keep PNGs inside app resources and logo-concepts)
+/*.png
+/*.jpg
+/*.jpeg
+
+# Temp tooling
+.extra/

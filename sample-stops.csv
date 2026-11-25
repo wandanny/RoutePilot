@@ -1,0 +1,5 @@
+address,label,recipient,phone,notes,priority,windowStart,windowEnd,latitude,longitude
+"No.12, Jalan Kota, Taiping",Perak Hardware,Lim Wei Ming,0123456789,Front counter,2,09:00,11:00,4.8470,100.7410
+"45 Jalan Ampang, Simpang",Kedai Makan Simpang,Ahmad,,Ask at the shop,0,11:00,13:00,4.8210,100.7660
+"8 Jalan Besar, Kamunting",Kamunting Pharmacy,Siti,0198765432,Back entrance,0,13:00,17:00,4.8740,100.7410
+"Lot 3, Jalan Taiping-Kamunting",Address only stop,, ,No coordinates supplied,0,14:00,16:00,,

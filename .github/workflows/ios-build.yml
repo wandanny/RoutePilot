@@ -1,0 +1,51 @@
+name: Build RoutePilot iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Show available SDKs
+        run: xcodebuild -showsdks
+
+      - name: Build unsigned app
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project RoutePilot.xcodeproj \
+            -scheme RoutePilot \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive -archivePath build/RoutePilot.xcarchive
+
+      - name: Pack IPA
+        working-directory: ios
+        run: |
+          mkdir -p build/Payload
+          cp -R build/RoutePilot.xcarchive/Products/Applications/RoutePilot.app build/Payload/
+          cd build && zip -qr RoutePilot.ipa Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoutePilot-unsigned-ipa
+          path: ios/build/RoutePilot.ipa
+          if-no-files-found: error

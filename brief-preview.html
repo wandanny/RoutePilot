@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoutePilot — Design preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F5F1; --surface:#FFFFFF; --muted:#EDE9E2; --dark:#262625;
+    --text:#1F1D1A; --secondary:#6B6560; --accent:#F97316; --accent-text:#C2410C;
+    --divider:rgba(31,29,26,.12); --error:#B3261E;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Satoshi',system-ui,sans-serif;padding:40px 24px 80px}
+  main{max-width:920px;margin:0 auto}
+  h1{font-family:'Outfit',sans-serif;font-weight:600;font-size:32px;letter-spacing:-.02em;margin:0 0 4px}
+  .sub{color:var(--secondary);font-size:14px;margin:0 0 48px}
+  section{background:var(--surface);border-radius:16px;padding:28px;margin-bottom:24px}
+  h2{font-family:'Outfit',sans-serif;font-weight:600;font-size:18px;margin:0 0 20px}
+  .swatches{display:flex;flex-wrap:wrap;gap:12px}
+  .sw{width:132px}
+  .chip{height:64px;border-radius:12px;border:1px solid var(--divider)}
+  .sw b{display:block;font-size:12px;margin-top:8px}
+  .sw small{color:var(--secondary);font-family:'JetBrains Mono',monospace;font-size:11px}
+  .spec{display:grid;gap:18px}
+  .spec div p{margin:4px 0 0;color:var(--secondary);font-size:13px}
+  .display{font-family:'Outfit',sans-serif;font-weight:600;font-size:32px;letter-spacing:-.02em}
+  .body{font-family:'Satoshi',sans-serif;font-size:14px;line-height:1.6}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:14px}
+  .ruler{display:flex;align-items:flex-end;gap:20px;height:140px}
+  .bar{background:var(--accent);border-radius:8px 8px 0 0;width:90px;position:relative}
+  .bar span{position:absolute;top:-22px;left:0;font-size:11px;color:var(--secondary)}
+  .components{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .btn{border:0;border-radius:16px;height:48px;padding:0 22px;font-family:'Satoshi',sans-serif;font-weight:700;font-size:14px;cursor:pointer}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.outline{background:transparent;color:var(--accent-text);border:1px solid var(--accent-text)}
+  .card{width:260px;background:var(--muted);border-radius:16px;padding:18px}
+  .card h3{margin:0 0 6px;font-family:'Outfit',sans-serif;font-size:18px}
+  .card p{margin:0;color:var(--secondary);font-size:13px;line-height:1.5}
+  .field{width:260px}
+  .field label{display:block;font-size:12px;font-weight:500;margin-bottom:6px;color:var(--secondary)}
+  .field input{width:100%;height:48px;border:1px solid var(--divider);background:var(--muted);border-radius:12px;padding:0 14px;font-family:'Satoshi',sans-serif;font-size:14px;color:var(--text)}
+  .nav{display:flex;background:var(--dark);border-radius:16px;padding:10px;gap:6px;width:340px}
+  .nav div{flex:1;text-align:center;color:#B8B4AE;font-size:12px;padding:10px 0;border-radius:10px}
+  .nav div.active{color:#fff;background:rgba(255,255,255,.10);box-shadow:inset 0 -2px 0 var(--accent)}
+  .note{font-size:12px;color:var(--secondary);margin-top:16px}
+</style>
+</head>
+<body>
+<main>
+  <h1>RoutePilot — design preview</h1>
+  <p class="sub">professional_minimal · light warm base · coral accent · Outfit + Satoshi · single-column compact</p>
+
+  <section>
+    <h2>1 · Colour palette</h2>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#F7F5F1"></div><b>Background</b><small>#F7F5F1</small></div>
+      <div class="sw"><div class="chip" style="background:#FFFFFF"></div><b>Surface</b><small>#FFFFFF</small></div>
+      <div class="sw"><div class="chip" style="background:#EDE9E2"></div><b>Surface muted</b><small>#EDE9E2</small></div>
+      <div class="sw"><div class="chip" style="background:#262625"></div><b>Dark surface</b><small>#262625</small></div>
+      <div class="sw"><div class="chip" style="background:#1F1D1A"></div><b>Text</b><small>#1F1D1A</small></div>
+      <div class="sw"><div class="chip" style="background:#F97316"></div><b>Accent fill</b><small>#F97316</small></div>
+      <div class="sw"><div class="chip" style="background:#C2410C"></div><b>Accent text</b><small>#C2410C</small></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Typography</h2>
+    <div class="spec">
+      <div><div class="display">Your route, sorted.</div><p>Display · Outfit 600 · 32sp · -0.02em</p></div>
+      <div><div class="body">No.23, Jalan PUJ 2/45, Taman Puncak Jalil, Selangor</div><p>Body · Satoshi 400 · 14sp / 20sp</p></div>
+      <div><div class="mono">43300 · 12.4 km · 26 min</div><p>Mono · JetBrains Mono 500 · 14sp</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · Spacing ruler</h2>
+    <div class="ruler">
+      <div class="bar" style="height:16px"><span>16dp padding</span></div>
+      <div class="bar" style="height:24px"><span>24dp block</span></div>
+      <div class="bar" style="height:48px"><span>48dp tap</span></div>
+      <div class="bar" style="height:72px"><span>72dp nav</span></div>
+    </div>
+    <p class="note">Compact density: 16dp horizontal padding, 24dp between major blocks, 48dp minimum tap targets.</p>
+  </section>
+
+  <section>
+    <h2>4 · Components</h2>
+    <div class="components">
+      <button class="btn primary">Open optimized route</button>
+      <button class="btn outline">Scan label</button>
+      <div class="card"><h3>Next stop</h3><p>LEE MEI SEE · No.23, Jalan PUJ 2/45 · 09:00–11:00</p></div>
+      <div class="field"><label>POSTCODE</label><input value="43300" readonly></div>
+      <div class="nav">
+        <div class="active">Route</div><div>Scan</div><div>Exceptions</div><div>Archive</div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
