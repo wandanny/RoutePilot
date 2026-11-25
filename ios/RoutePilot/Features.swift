@@ -195,10 +195,10 @@ struct ContentView: View {
         onSettings: { showSettings = true },
         onMaps: { batchIndex = 0; showMapsBatch = true },
         onReset: { resetRoute() },
+        onClose: { showOptions = false },
         pendingCount: stops.filter { $0.status == .pending }.count,
         doneCount: stops.filter { $0.status == .done }.count,
-        failedCount: stops.filter { $0.status == .failed }.count,
-        onClose: { showOptions = false }
+        failedCount: stops.filter { $0.status == .failed }.count
       )
     }
     .sheet(isPresented: $showSummary) { SummaryView(stops: stops, onClose: { showSummary = false }) }
