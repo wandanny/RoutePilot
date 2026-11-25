@@ -225,7 +225,7 @@ struct ContentView: View {
 
   private func addStop(address: String, label: String, recipient: String, phone: String) {
     guard !address.isEmpty else { message = "Address is required"; return }
-    let stop = StopRecord(address: address, label: label, recipient: recipient, phone: phone, route: activeRoute)
+    let stop = StopRecord(route: activeRoute, address: address, label: label, recipient: recipient, phone: phone)
     context.insert(stop)
     Task { await optimize() }
   }
@@ -236,6 +236,7 @@ struct ContentView: View {
     for row in rows {
       guard let address = row["address"], !address.isEmpty else { continue }
       context.insert(StopRecord(
+        route: activeRoute,
         address: address,
         label: row["label"] ?? "",
         recipient: row["recipient"] ?? "",
@@ -243,7 +244,6 @@ struct ContentView: View {
         notes: row["notes"] ?? "",
         latitude: Double(row["latitude"] ?? ""),
         longitude: Double(row["longitude"] ?? ""),
-        route: activeRoute,
       ))
       count += 1
     }

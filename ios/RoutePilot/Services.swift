@@ -160,7 +160,7 @@ enum LucifClient {
     request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
-    let (data, _) = try await URLSession.shared.dataTask(for: request)
+    let (data, _) = try await URLSession.shared.data(for: request)
     let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
     return decoded.choices.first?.message.content ?? ""
   }
@@ -188,7 +188,7 @@ enum Nominatim {
           let url = URL(string: "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=\(query)") else { return nil }
     var request = URLRequest(url: url)
     request.setValue("RoutePilot/1.0 (courier route helper)", forHTTPHeaderField: "User-Agent")
-    guard let (data, _) = try? await URLSession.shared.dataTask(for: request),
+    guard let (data, _) = try? await URLSession.shared.data(for: request),
           let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
           let first = array.first,
           let lat = Double((first["lat"] as? String) ?? ""),
@@ -208,7 +208,7 @@ enum Osrm {
     let coords = [origin] + stops
     let path = coords.map { "\($0.1),\($0.0)" }.joined(separator: ";")
     guard let url = URL(string: "https://router.project-osrm.org/route/v1/driving/\(path)?overview=full&geometries=geojson&steps=false") else { return nil }
-    guard let (data, _) = try? await URLSession.shared.dataTask(for: URLRequest(url: url)),
+    guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let routes = json["routes"] as? [[String: Any]],
           let first = routes.first else { return nil }
@@ -230,7 +230,7 @@ enum Osrm {
     let coords = [origin] + stops
     let path = coords.map { "\($0.1),\($0.0)" }.joined(separator: ";")
     guard let url = URL(string: "https://router.project-osrm.org/table/v1/driving/\(path)?annotations=duration") else { return nil }
-    guard let (data, _) = try? await URLSession.shared.dataTask(for: URLRequest(url: url)),
+    guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let durations = json["durations"] as? [[Double]] else { return nil }
     return durations
