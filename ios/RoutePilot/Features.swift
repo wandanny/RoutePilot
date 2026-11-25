@@ -65,7 +65,10 @@ struct ContentView: View {
       archiveTab.tag(4).tabItem { Label("Archive", systemImage: "archivebox") }
     }
     .onAppear { LocationProvider.shared.request(); ensureRoute() }
-    .sheet(isPresented: $showScan) { ScanView { message = $0 } }
+    .sheet(isPresented: $showScan) { ScanView { address, label, recipient in
+      addStop(address: address, label: label, recipient: recipient, phone: "")
+      showScan = false
+    } onMessage: { message = $0 } }
     .sheet(isPresented: $showAdd) { AddStopView { address, label, recipient, phone in
       addStop(address: address, label: label, recipient: recipient, phone: phone)
       showAdd = false
@@ -386,7 +389,6 @@ struct BackupDocument: FileDocument {
 // MARK: - Camera and confirm
 
 struct ScanView: View {
-  @Environment(\.modelContext) private var context
   @Environment(\.dismiss) private var dismiss
   @State private var image: UIImage?
   @State private var showPicker = false
@@ -397,6 +399,7 @@ struct ScanView: View {
   @State private var warnings: [String] = []
   @State private var showSettings = false
   @State private var busy = false
+  let onSave: (String, String, String) -> Void
   let onMessage: (String) -> Void
 
   var body: some View {
@@ -442,12 +445,7 @@ struct ScanView: View {
 
   private func save() {
     guard !address.isEmpty else { onMessage("Address is required"); return }
-    let stop = StopRecord(
-      address: postcode.isEmpty ? address : "\(address), \(postcode)",
-      label: name,
-      recipient: name,
-    )
-    context.insert(stop)
+    onSave(postcode.isEmpty ? address : "\(address), \(postcode)", name, name)
     onMessage("Stop added")
     dismiss()
   }
