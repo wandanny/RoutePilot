@@ -146,6 +146,7 @@ struct ContentView: View {
   @State private var showMapsBatch = false
   @State private var batchIndex = 0
   @State private var showSettings = false
+  @State private var showMapsSettings = false
   @State private var showConsent = false
   @State private var detailStop: StopRecord?
   @State private var importCSV = false
@@ -223,6 +224,7 @@ struct ContentView: View {
         onBackup: { backupData = makeBackup(); showExportBackup = true },
         onRestore: { showImportBackup = true },
         onSettings: { showSettings = true },
+        onMapsSettings: { showMapsSettings = true },
         onMaps: { batchIndex = 0; showMapsBatch = true },
         onReset: { resetRoute() },
         onClose: { showOptions = false },
@@ -234,6 +236,7 @@ struct ContentView: View {
     }
     .sheet(isPresented: $showSummary) { SummaryView(stops: stops, onClose: { showSummary = false }) }
     .sheet(isPresented: $showSettings) { AiSettingsView() }
+    .sheet(isPresented: $showMapsSettings) { MapsSettingsView() }
     .sheet(isPresented: Binding(get: { detailStop != nil }, set: { if !$0 { detailStop = nil } })) {
       if let stop = detailStop {
         StopDetailSheet(
@@ -582,11 +585,19 @@ struct ContentView: View {
       }
     }
     var ordered = geocoded
-    if geocoded.count >= 2,
-       let matrix = await Osrm.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point)) {
-      let solverOrder = RouteSolver.order(matrix: matrix, stopCount: geocoded.count)
-      ordered = solverOrder.compactMap { candidate in
-        candidate > 0 && candidate <= geocoded.count ? geocoded[candidate - 1] : nil
+    if geocoded.count >= 2 {
+      var matrix: [[Double]]?
+      if TomTomClient.hasKey {
+        matrix = await TomTomClient.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point))
+      }
+      if matrix == nil {
+        matrix = await Osrm.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point))
+      }
+      if let matrix {
+        let solverOrder = RouteSolver.order(matrix: matrix, stopCount: geocoded.count)
+        ordered = solverOrder.compactMap { candidate in
+          candidate > 0 && candidate <= geocoded.count ? geocoded[candidate - 1] : nil
+        }
       }
     }
     for (index, item) in ordered.enumerated() { item.stop.orderIndex = index }
@@ -735,6 +746,7 @@ struct OptionsSheet: View {
   let onBackup: () -> Void
   let onRestore: () -> Void
   let onSettings: () -> Void
+  let onMapsSettings: () -> Void
   let onMaps: () -> Void
   let onReset: () -> Void
   let onClose: () -> Void
@@ -751,6 +763,7 @@ struct OptionsSheet: View {
         row("Backup", symbol: "square.and.arrow.up") { run(onBackup) }
         row("Restore", symbol: "square.and.arrow.down") { run(onRestore) }
         row("AI settings", symbol: "key") { run(onSettings) }
+        row("Maps settings", symbol: "map.circle") { run(onMapsSettings) }
         Section {
           Toggle("Restrict stops to current area", isOn: $restrictArea)
             .font(.system(size: 16))
@@ -1058,6 +1071,39 @@ struct AiSettingsView: View {
   }
 }
 
+struct MapsSettingsView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Environment(\.colorScheme) private var scheme
+  @State private var key = ""
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        SecureField("TomTom API key", text: $key)
+        Text("Free key from developer.tomtom.com. Stored in the iOS Keychain and used for geocoding and road routing. Leave blank to use Apple and OpenStreetMap instead.")
+          .font(.system(size: 14))
+          .foregroundStyle(RP.secondary(scheme))
+        Button("Save") {
+          KeychainStore.save(key, key: "tomtom_api_key")
+          dismiss()
+        }
+        if !key.isEmpty {
+          Button("Clear key") {
+            KeychainStore.save("", key: "tomtom_api_key")
+            key = ""
+          }
+          .foregroundStyle(RP.error(scheme))
+        }
+      }
+      .scrollContentBackground(.hidden)
+      .background(RP.canvas(scheme))
+      .navigationTitle("Maps settings")
+      .toolbar { Button("Cancel") { dismiss() } }
+      .onAppear { key = KeychainStore.read(key: "tomtom_api_key") }
+    }
+  }
+}
+
 struct ImagePicker: UIViewControllerRepresentable {
   let sourceType: UIImagePickerController.SourceType
   let completion: (UIImage) -> Void
@@ -1238,11 +1284,10 @@ struct MapScreen: View {
       return (lat, lon)
     }
     guard let origin = LocationProvider.shared.current() ?? coords.first, !coords.isEmpty else { return }
-    if let road = await Osrm.route(origin: origin, stops: coords) {
-      route = road
-    } else {
-      route = RoutePath(points: [origin] + coords)
-    }
+    var road: RoutePath?
+    if TomTomClient.hasKey { road = await TomTomClient.route(origin: origin, stops: coords) }
+    if road == nil { road = await Osrm.route(origin: origin, stops: coords) }
+    route = road ?? RoutePath(points: [origin] + coords)
   }
 }
 

@@ -32,22 +32,22 @@ targets:
         Debug:
           CODE_SIGNING_ALLOWED: NO
           PRODUCT_BUNDLE_IDENTIFIER: com.local.routepilot.ios
-          MARKETING_VERSION: "1.0.2"
-          CURRENT_PROJECT_VERSION: 3
+          MARKETING_VERSION: "1.0.3"
+          CURRENT_PROJECT_VERSION: 4
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         Release:
           CODE_SIGNING_ALLOWED: NO
           PRODUCT_BUNDLE_IDENTIFIER: com.local.routepilot.ios
-          MARKETING_VERSION: "1.0.2"
-          CURRENT_PROJECT_VERSION: 3
+          MARKETING_VERSION: "1.0.3"
+          CURRENT_PROJECT_VERSION: 4
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: RoutePilot/Info.plist
       properties:
         CFBundleDisplayName: RoutePilot
         CFBundleName: RoutePilot
-        CFBundleShortVersionString: "1.0.2"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "1.0.3"
+        CFBundleVersion: "4"
         UIRequiredDeviceCapabilities:
           - arm64
         NSCameraUsageDescription: "RoutePilot uses the camera to read parcel labels."

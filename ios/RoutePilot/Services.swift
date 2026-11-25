@@ -325,9 +325,104 @@ enum Geocoder {
     let acceptable: (Double, Double) -> Bool = { lat, lon in
       !restrictToArea || AddressSupport.isPlausible(latitude: lat, longitude: lon, near: origin)
     }
+    if let point = await TomTomClient.geocode(address, restrictToArea: restrictToArea, origin: origin),
+       acceptable(point.0, point.1) { return point }
     if let point = await AppleGeocoder.geocode(address), acceptable(point.0, point.1) { return point }
     if let point = await Nominatim.geocode(address, structured: restrictToArea), acceptable(point.0, point.1) { return point }
     return nil
+  }
+}
+
+enum TomTomClient {
+  private static let pathAllowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~,:()&"))
+
+  static var hasKey: Bool { !KeychainStore.read(key: "tomtom_api_key").isEmpty }
+
+  static func geocode(_ address: String, restrictToArea: Bool, origin: (Double, Double)?) async -> (Double, Double)? {
+    let key = KeychainStore.read(key: "tomtom_api_key")
+    guard !key.isEmpty,
+          let encoded = address.addingPercentEncoding(withAllowedCharacters: pathAllowed),
+          var components = URLComponents(string: "https://api.tomtom.com/search/2/geocode/\(encoded).json") else { return nil }
+    var items = [
+      URLQueryItem(name: "key", value: key),
+      URLQueryItem(name: "limit", value: "1"),
+      URLQueryItem(name: "countrySet", value: "MY"),
+    ]
+    if restrictToArea, let origin {
+      items += [
+        URLQueryItem(name: "lat", value: String(origin.0)),
+        URLQueryItem(name: "lon", value: String(origin.1)),
+        URLQueryItem(name: "radius", value: "50000"),
+      ]
+    }
+    components.queryItems = items
+    guard let data = await fetch(components),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let results = json["results"] as? [[String: Any]],
+          let first = results.first,
+          let position = first["position"] as? [String: Any],
+          let lat = position["lat"] as? Double,
+          let lon = position["lon"] as? Double else { return nil }
+    return (lat, lon)
+  }
+
+  static func table(origin: (Double, Double), stops: [(Double, Double)]) async -> [[Double]]? {
+    let key = KeychainStore.read(key: "tomtom_api_key")
+    guard !key.isEmpty, var components = URLComponents(string: "https://api.tomtom.com/routing/1/matrix/json") else { return nil }
+    let locations = ([origin] + stops).map { "\($0.0),\($0.1)" }.joined(separator: ":")
+    components.queryItems = [
+      URLQueryItem(name: "key", value: key),
+      URLQueryItem(name: "locations", value: locations),
+      URLQueryItem(name: "travelMode", value: "car"),
+      URLQueryItem(name: "routeType", value: "fastest"),
+    ]
+    guard let data = await fetch(components),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let matrices = json["matrices"] as? [[String: Any]],
+          let durations = matrices.first?["durationsInSeconds"] as? [[Double]],
+          !durations.isEmpty else { return nil }
+    return durations
+  }
+
+  static func route(origin: (Double, Double), stops: [(Double, Double)]) async -> RoutePath? {
+    let key = KeychainStore.read(key: "tomtom_api_key")
+    let coords = ([origin] + stops).map { "\($0.0),\($0.1)" }.joined(separator: ":")
+    guard !key.isEmpty,
+          let path = coords.addingPercentEncoding(withAllowedCharacters: pathAllowed),
+          var components = URLComponents(string: "https://api.tomtom.com/routing/1/calculateRoute/\(path)/json") else { return nil }
+    components.queryItems = [
+      URLQueryItem(name: "key", value: key),
+      URLQueryItem(name: "travelMode", value: "car"),
+      URLQueryItem(name: "routeType", value: "fastest"),
+    ]
+    guard let data = await fetch(components),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let routes = json["routes"] as? [[String: Any]],
+          let first = routes.first else { return nil }
+    var points: [(Double, Double)] = []
+    if let legs = first["legs"] as? [[String: Any]] {
+      for leg in legs {
+        if let coords = leg["points"] as? [[String: Any]] {
+          for point in coords {
+            if let lat = point["latitude"] as? Double, let lon = point["longitude"] as? Double {
+              points.append((lat, lon))
+            }
+          }
+        }
+      }
+    }
+    let summary = first["summary"] as? [String: Any]
+    return RoutePath(
+      points: points,
+      distanceKm: (summary?["lengthInMeters"] as? Double ?? 0) / 1000,
+      durationMin: (summary?["travelTimeInSeconds"] as? Double ?? 0) / 60
+    )
+  }
+
+  private static func fetch(_ components: URLComponents) async -> Data? {
+    guard let url = components.url,
+          let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)) else { return nil }
+    return data
   }
 }
 
