@@ -136,21 +136,19 @@ enum AddressNormalizer {
   static func normalize(_ text: String) -> String {
     let lower = text.lowercased()
     let cleaned = lower.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
-    return cleaned.split(separator: Character(" ")).joined(separator: " ")
+    return cleaned.components(separatedBy: " ").filter { !$0.isEmpty }.joined(separator: " ")
   }
 
   static func key(_ text: String) -> String {
     let cleaned = normalize(text)
-    let parts = cleaned.split(separator: Character(" ")).filter { token in
-      !ignored.contains(String(token)) && !(token.count == 5 && token.allSatisfy { $0.isNumber })
+    let parts = cleaned.components(separatedBy: " ").filter { token in
+      !ignored.contains(token) && !(token.count == 5 && token.allSatisfy { $0.isNumber })
     }
     return parts.joined(separator: " ")
   }
 
   static func postcode(_ text: String) -> String? {
-    normalize(text).split(separator: Character(" "))
-      .first { $0.count == 5 && $0.allSatisfy { $0.isNumber } }
-      .map(String.init)
+    normalize(text).components(separatedBy: " ").first { $0.count == 5 && $0.allSatisfy { $0.isNumber } }
   }
 }
 
