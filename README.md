@@ -1,39 +1,33 @@
 # RoutePilot
 
-## Platforms
-- Android: native Kotlin app, built with Gradle in `app/`.
-- iPhone: native SwiftUI rebuild in `ios/`, built unsigned on GitHub Actions and sideloaded with AltStore + a free Apple ID. See `ios/README.md`.
+Offline-first courier route helper for a small delivery operation around Taiping, Kamunting and Simpang, Perak. There are two native apps in this repository:
 
-Offline-first route helper for a courier on an Android phone. Built from the approved spec in `SPEC.md`.
+| Platform | Location | Status |
+|---|---|---|
+| Android | `app/` | Native Kotlin/Compose app, debug builds installed and tests passing |
+| iPhone | `ios/` | Native SwiftUI app, v1.0.6, unsigned IPA built on GitHub Actions and sideloaded with AltStore |
 
-## What it does (v2)
+Product decisions are in `SPEC.md`. Visual systems are in `DESIGN.md` (Android) and `ios/DESIGN.md` (iOS), with a preview at `ios/design-preview.html`.
 
-- **Scans parcel labels** with the phone camera. On-device ML Kit OCR reads the delivery address (SPX/Shopee labels are anchored on "Recipient Details / Penerima"), and the barcode is read only as a tracking-ID duplicate key. Nothing is uploaded.
-- **Confirms before adding**: recipient, address, postcode and phone are editable; low-confidence fields are flagged and the raw recognised text is shown when parsing fails. The photo is discarded after extraction.
-- Keeps the v1 route features: CSV import, offline local storage, nearest-neighbour ordering with priority/time-window/pin overrides, Maps/Waze handoff, done/failed states, exceptions, archive, JSON backup and CSV export.
-- Redesigned UI: orange accent, light-grey hero panel with route progress and next stop, and a draggable dark bottom sheet with the stop list. Light and dark themes.
-- **Optional AI upgrade**: on the confirm screen, "Improve with AI" sends a cropped, downscaled label to the `lucif` model and fills the fields from its JSON response. The key is entered in "AI settings" and stored encrypted on-device; nothing secret is in the APK. A one-time consent dialog explains that the image leaves the phone. If the call fails, the on-device result is kept.
-- **Branding**: a flat parcel + route-pin logo (concept 2 in `logo-concepts/`) is used for the launcher icon and an opening loading screen with a subtle pulse, the wordmark and "Your route, sorted." The loading screen waits for local data with an 800 ms minimum.
-- **AI-first scanning (v4)**: the cloud VLM scans every label on capture; on-device OCR is used only if the cloud call fails or there is no signal, with a note explaining the fallback.
-- **Optimized route (v4)**: addresses are geocoded via Nominatim and cached; if that fails, lucif estimates coordinates from the plain address (flagged "AI estimated" on the stop card). OSRM road distances plus a local open-path TSP produce the order, ending at the farthest stop. Every optimization takes a fresh GPS fix first, and the remaining route is re-optimised after each completion. The Route tab has an "Optimize now" button for a manual full re-plan. The "Maps" button opens Google Maps in driving navigation mode with routes longer than nine stops split into consecutive chunks.
-- **Redesign (v4)**: full UI overhaul per `DESIGN.md` — warm light palette, coral accent, bundled Outfit + Satoshi fonts, compact single-column layout, bottom navigation, and designed empty/loading/error/offline states.
-- **In-app map**: a fifth "Map" tab shows all pending stops as markers, an OSRM road route line, live GPS with recenter, and a step list that auto-advances. Map tiles use standard OpenStreetMap tiles (no key) and are cached as loaded. The map has a fixed 300dp compact panel and a full-screen mode in the Map tab. The Google Maps handoff remains available via the "Maps" button.
-- **Route actions**: "Navigate all stops" re-optimizes pending stops and opens the in-app map full-screen; a stop's Navigate button opens the map focused on that stop. "Reset" archives the current route (stops kept read-only) and starts a new empty route after a confirmation showing status counts.
+## What both apps do
 
-## What v1 did
+- Scan a parcel label with the camera. AI reads it first; on-device OCR is the automatic fallback when the AI key is missing, a request fails, or there is no signal. You confirm the recipient, address, postcode and phone before anything is saved.
+- Keep stops in a local, offline-first store. No account, no backend, no sync, no proof-of-delivery photos or signatures.
+- Order stops with road durations, ending at the farthest efficient stop. "Optimize now" re-plans on demand, and the order is refreshed as stops are completed.
+- Show an in-app map with numbered stops, a route line and recenter, plus a Google Maps handoff that splits long routes into batches of nine stops.
+- Record Done / Failed with reasons, exceptions and an archive; review a summary; reset a route after confirmation.
+- Support delivery windows with a notification 30 minutes before a window opens.
+- Back up and restore all data as a local JSON file. Data never leaves the device except for an explicitly enabled AI scan or an online geocode lookup.
 
-- Imports a CSV stop list (comma or semicolon delimited) and lets you add stops by hand.
-- Orders stops by nearest-neighbour from your current GPS position, with priority, time windows, pin-next and manual reordering.
-- Hands a stop off to Google Maps, Waze or any installed map app through a chooser.
-- Marks stops done with undo, or records a failed delivery with a reason, note and retry time.
-- Keeps one active route plus an archive, with JSON backup/restore and CSV export.
-- Notifies you shortly before a delivery window starts.
+## Android
 
-No account, no backend, no network requirement, no scanning or photo proof (all out of scope).
+- Kotlin, Jetpack Compose (Material 3), Room, Koin, CameraX + ML Kit, WorkManager, single module.
+- Parcel labels are parsed from "Recipient Details / Penerima"; the barcode is used only as a duplicate tracking-ID key.
+- Geocoding uses Nominatim with an AI coordinate fallback that is flagged on the stop card; routing uses OSRM road durations plus a local open-path solver.
+- Includes CSV import/export, drag/pin/manual reorder, Waze/Google Maps chooser, light/dark themes and an opening loading animation.
+- AI requests use your own lucif.ai key, stored encrypted on-device, behind a one-time consent sheet. The label image is cropped and downscaled before sending.
 
-## Build
-
-Requires JDK 21 and Android SDK platform 36.
+Build (JDK 21, Android SDK platform 36):
 
 ```powershell
 cd app
@@ -42,28 +36,58 @@ cd app
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
 
-Debug-signed, so it can be sideloaded directly onto a device or installed on an emulator:
+Install on a connected device or emulator:
 
 ```powershell
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-## Sample data
-
-`sample-stops.csv` in this directory demonstrates all supported columns, including optional coordinates.
-
-## Tests
+Run JVM unit tests:
 
 ```powershell
+cd app
 .\gradlew.bat test
 ```
 
-## Emulator on this machine
+## iPhone
 
-The `medium_phone` AVD boots with AEHD hardware acceleration and GPU disabled (the Play Store image and host GPU caused an offline adb state here):
+SwiftUI, SwiftData, MapKit, iOS 17+, no third-party SDK. Built unsigned by `.github/workflows/ios-build.yml` on a macOS runner, then signed on your iPhone with AltStore and a free Apple ID. No paid Apple Developer Program, no Mac required locally.
 
-```powershell
-& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd medium_phone -gpu off
-```
+Key features in v1.0.6:
 
-First boot takes about 100 seconds. Check with `adb devices` until it says `device` rather than `offline`.
+- Four tabs: Route, Scan, Map, Archive. Exceptions are the Failed filter on Route.
+- AI-first scanning with automatic Apple Vision fallback, editable confirmation, and a "Read by AI" / "Read on device" badge.
+- **Local-first geocoding**: a bundled 5,944-entry OpenStreetMap address index for Taiping/Kamunting/Simpang is tried first. Matches are conservative (house number + street, postcode when present); ambiguous addresses fall through to an online geocoder.
+- Optional free TomTom key (Route options → Maps settings) for better Malaysia address coverage and road routing. Apple `CLGeocoder` and Nominatim remain fallbacks; OSRM and a straight-line polyline are used when routing is unavailable.
+- Every successful geocode is cached permanently on-device. The index checks for updates weekly, with a manual check and cache-clear control in Maps settings.
+- MapKit map with numbered markers, route polyline and a glass stats panel; batched Google Maps handoff with a visible batch tally.
+- Delivery windows in Add/Edit, 30-minute notifications, up/down reorder in the detail sheet, JSON backup/restore, custom app icon, route-line loading animation, full light/dark mode, Dynamic Type and VoiceOver.
+- CSV export is intentionally out of scope on iOS.
+
+Download the current unsigned IPA from the [v1.0.6 release](https://github.com/wandanny/RoutePilot/releases/download/v1.0.6-ios/RoutePilot-v1.0.6.ipa). In AltStore, use **Install from URL** with that link, or share the IPA from Files.
+
+Because the signing certificate is free, it expires after **7 days**. Keep AltServer running on the PC and use **Refresh All** in AltStore at least weekly, or the app will stop opening. See `ios/README.md` for full sideload instructions.
+
+## Build and test the iPhone app
+
+No Mac is needed locally. Push to GitHub; the workflow generates the Xcode project with XcodeGen, runs unit tests on an iOS simulator, builds an unsigned release app, packs the IPA and uploads it as the `RoutePilot-unsigned-ipa` artifact. CI is the only Swift compile check — the Windows development machine cannot build iOS code.
+
+Unit tests cover label parsing, CSV parsing, the route solver and area validation: 5 tests passing in the current release build.
+
+## Repository layout
+
+- `SPEC.md` — approved product spec and version history.
+- `DESIGN.md`, `brief-preview.html` — Android visual system.
+- `ios/DESIGN.md`, `ios/design-preview.html` — iOS visual system and preview.
+- `app/` — Android Gradle project.
+- `ios/RoutePilot/` — SwiftUI sources; `ios/data/` and `ios/benchmark/` contain the generated address index, its version file and the benchmark scripts.
+- `logo-concepts/` — brand mark concepts; concept 2 is the chosen mark.
+- `sample-stops.csv` — example CSV import file for Android.
+
+## Licence and attribution
+
+Route data is stored locally and is never sold or synced. The bundled offline address index is derived from OpenStreetMap and is used under the Open Database Licence; attribution appears in the iOS Maps settings and Summary screens. Map tiles and routing data carry their own provider terms.
+
+## Out of scope
+
+No backend, accounts, cloud sync, proof-of-delivery photos/signatures, real `.xlsx` support, Wear OS, tablets, or paid Apple Developer Program features such as TestFlight/App Store distribution.

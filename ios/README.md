@@ -26,10 +26,10 @@ No Mac is needed on your side. The Windows development machine cannot compile Sw
 
 - Four tabs: Route, Scan, Map, Archive. Exceptions are the Failed filter on Route.
 - AI-first label reading via lucif.ai with automatic on-device Apple Vision fallback, editable confirmation and a source badge.
-- Nominatim geocoding with AI coordinate fallback; estimated coordinates are flagged.
-- OSRM road-duration route optimization with open-path ordering and "Optimize now".
+- Local-first geocoding: bundled 5,944-entry OSM address index, then an optional TomTom key, then Apple `CLGeocoder` / Nominatim. No AI-estimated coordinates.
+- TomTom or OSRM road-duration route optimization with open-path ordering and "Optimize now"; straight-line map fallback when routing is unavailable.
 - Delivery windows editable in Add Stop and stop details; local notification 30 minutes before a window opens.
-- Manual reorder by drag in the list and up/down buttons in the detail sheet.
+- Manual reorder with up/down buttons in the detail sheet.
 - In-app MapKit map with numbered markers, route polyline and a glass stats panel.
 - Google Maps handoff in chunks of nine stops.
 - Done / Failed with reason, exceptions, archive, summary, reset with confirmation.
