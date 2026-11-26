@@ -47,6 +47,19 @@ final class ParserTests: XCTestCase {
     XCTAssertTrue(AddressSupport.isPlausible(latitude: 3.14, longitude: 101.69, near: nil))
   }
 
+  func testLockPolicyPreventsReordering() {
+    let matrix: [[Double]] = [
+      [0, 10, 40, 30],
+      [10, 0, 20, 35],
+      [40, 20, 0, 15],
+      [30, 35, 15, 0],
+    ]
+    XCTAssertNil(RouteOrderingPolicy.reorderedIndices(matrix: matrix, stopCount: 3, locked: true))
+    let unlocked = RouteOrderingPolicy.reorderedIndices(matrix: matrix, stopCount: 3, locked: false)
+    XCTAssertEqual(unlocked?.count, 3)
+    XCTAssertEqual(Set(unlocked ?? []), Set([1, 2, 3]))
+  }
+
   func testRouteSolverEndsAtFarthestEfficientStop() {
     let matrix: [[Double]] = [
       [0, 10, 40, 30],

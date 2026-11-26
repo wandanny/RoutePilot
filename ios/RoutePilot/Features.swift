@@ -145,6 +145,7 @@ struct ContentView: View {
   @State private var showOptions = false
   @State private var showSummary = false
   @State private var showMapsBatch = false
+  @State private var showUnlockConfirm = false
   @State private var batchIndex = 0
   @State private var showSettings = false
   @State private var showMapsSettings = false
@@ -157,6 +158,7 @@ struct ContentView: View {
   @State private var busy = false
 
   private var activeRoute: RouteRecord? { allRoutes.first { $0.active } }
+  private var isLocked: Bool { activeRoute?.locked ?? false }
   private var routeStops: [StopRecord] {
     guard let route = activeRoute else { return [] }
     return allStops.filter { $0.route?.id == route.id }
@@ -233,7 +235,9 @@ struct ContentView: View {
         pendingCount: stops.filter { $0.status == .pending }.count,
         doneCount: stops.filter { $0.status == .done }.count,
         failedCount: stops.filter { $0.status == .failed }.count,
-        restrictArea: $restrictArea
+        restrictArea: $restrictArea,
+        isLocked: isLocked,
+        onToggleLock: { newValue in activeRoute?.locked = newValue }
       )
     }
     .sheet(isPresented: $showSummary) { SummaryView(stops: stops, onClose: { showSummary = false }) }
@@ -245,6 +249,7 @@ struct ContentView: View {
           stop: stop,
           onNavigate: { tab = 2; detailStop = nil },
           onReorder: { direction in move(stop, by: direction) },
+          isLocked: isLocked,
           onClose: { detailStop = nil }
         )
       }
@@ -271,6 +276,7 @@ struct ContentView: View {
       MapsBatchSheet(
         batches: mapBatches,
         index: $batchIndex,
+        isLocked: isLocked,
         onOpen: { openMapsBatch(at: $0) },
         onClose: { showMapsBatch = false }
       )
@@ -307,6 +313,15 @@ struct ContentView: View {
       VStack(alignment: .leading, spacing: RP.Space.lg) {
         HStack {
           Text("RoutePilot").font(.system(size: 34, weight: .bold, design: .rounded))
+          if isLocked {
+            Text("Locked")
+              .font(.system(size: 13, weight: .bold))
+              .padding(.horizontal, 10)
+              .padding(.vertical, 5)
+              .background(RP.accentFill(scheme))
+              .foregroundStyle(RP.onAccent(scheme))
+              .clipShape(Capsule())
+          }
           Spacer()
           Button { showOptions = true } label: {
             Image(systemName: "ellipsis.circle").font(.system(size: 22))
@@ -342,14 +357,27 @@ struct ContentView: View {
             else { showScan = true }
           }
           PrimaryButton(title: "Navigate all", systemImage: "navigation") {
-            Task { await optimize(silent: false); tab = 2 }
+            if !isLocked { Task { await optimize(silent: false) } }
+            tab = 2
           }
         }
 
         HStack(spacing: 8) {
           SecondaryButton(title: "Import CSV") { importCSV = true }
           SecondaryButton(title: "Add stop") { showAdd = true }
-          SecondaryButton(title: "Optimize now") { Task { await optimize(silent: false) } }
+          SecondaryButton(title: "Optimize now") {
+            if isLocked { showUnlockConfirm = true }
+            else { Task { await optimize(silent: false) } }
+          }
+          .confirmationDialog("Route order is locked", isPresented: $showUnlockConfirm) {
+            Button("Unlock and re-plan", role: .destructive) {
+              activeRoute?.locked = false
+              Task { await optimize(silent: false) }
+            }
+            Button("Cancel", role: .cancel) {}
+          } message: {
+            Text("Unlocking lets RoutePilot re-order the remaining stops.")
+          }
         }
 
         PrimaryButton(title: "Open in Google Maps", systemImage: "arrow.up.forward.app") {
@@ -611,25 +639,29 @@ struct ContentView: View {
         geocoded.append((stop: stop, point: (lat, lon)))
       }
     }
-    var ordered = geocoded
-    if geocoded.count >= 2 {
-      var matrix: [[Double]]?
-      if TomTomClient.hasKey {
-        matrix = await TomTomClient.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point))
-      }
-      if matrix == nil {
-        matrix = await Osrm.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point))
-      }
-      if let matrix {
-        let solverOrder = RouteSolver.order(matrix: matrix, stopCount: geocoded.count)
-        ordered = solverOrder.compactMap { candidate in
-          candidate > 0 && candidate <= geocoded.count ? geocoded[candidate - 1] : nil
+    if !isLocked {
+      var ordered = geocoded
+      if geocoded.count >= 2 {
+        var matrix: [[Double]]?
+        if TomTomClient.hasKey {
+          matrix = await TomTomClient.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point))
+        }
+        if matrix == nil {
+          matrix = await Osrm.table(origin: origin ?? geocoded[0].point, stops: geocoded.map(\.point))
+        }
+        if let matrix,
+           let solverOrder = RouteOrderingPolicy.reorderedIndices(
+             matrix: matrix, stopCount: geocoded.count, locked: isLocked
+           ) {
+          ordered = solverOrder.compactMap { candidate in
+            candidate > 0 && candidate <= geocoded.count ? geocoded[candidate - 1] : nil
+          }
         }
       }
+      for (index, item) in ordered.enumerated() { item.stop.orderIndex = index }
+      let unresolved = pending.filter { $0.latitude == nil || $0.longitude == nil }
+      for (offset, stop) in unresolved.enumerated() { stop.orderIndex = ordered.count + offset }
     }
-    for (index, item) in ordered.enumerated() { item.stop.orderIndex = index }
-    let unresolved = pending.filter { $0.latitude == nil || $0.longitude == nil }
-    for (offset, stop) in unresolved.enumerated() { stop.orderIndex = ordered.count + offset }
     await MainActor.run {
       busy = false
       if !silent {
@@ -781,6 +813,8 @@ struct OptionsSheet: View {
   let doneCount: Int
   let failedCount: Int
   @Binding var restrictArea: Bool
+  let isLocked: Bool
+  let onToggleLock: (Bool) -> Void
 
   var body: some View {
     NavigationStack {
@@ -798,6 +832,18 @@ struct OptionsSheet: View {
             .font(.system(size: 13))
             .foregroundStyle(RP.secondary(scheme))
         }
+        Section {
+          Toggle("Lock route order", isOn: Binding(
+            get: { isLocked },
+            set: { onToggleLock($0) }
+          ))
+          .font(.system(size: 16))
+          if isLocked {
+            Text("Order locked. Optimize now will ask before changing it.")
+              .font(.system(size: 13))
+              .foregroundStyle(RP.accentText(scheme))
+          }
+        }
         row("Reset route", symbol: "arrow.counterclockwise", destructive: true) { showResetAlert = true }
       }
       .listStyle(.insetGrouped)
@@ -813,7 +859,7 @@ struct OptionsSheet: View {
           onClose()
         }
       } message: {
-        Text("Pending \(pendingCount) · Done \(doneCount) · Failed \(failedCount). The route will be archived and a new empty route started.")
+        Text("Pending \(pendingCount) · Done \(doneCount) · Failed \(failedCount). The route will be archived and a new empty route started. The order lock is released.")
       }
     }
   }
@@ -844,6 +890,7 @@ struct MapsBatchSheet: View {
   @Environment(\.colorScheme) private var scheme
   let batches: [[StopRecord]]
   @Binding var index: Int
+  let isLocked: Bool
   let onOpen: (Int) -> Void
   let onClose: () -> Void
 
@@ -860,6 +907,11 @@ struct MapsBatchSheet: View {
           Text("\(batches.count) batches of up to 9 stops. Open each batch in turn.")
             .font(.system(size: 16))
             .foregroundStyle(RP.secondary(scheme))
+          if isLocked {
+            Text("Order locked — batches follow the saved route order.")
+              .font(.system(size: 14, weight: .semibold))
+              .foregroundStyle(RP.accentText(scheme))
+          }
           HStack(spacing: 6) {
             ForEach(batches.indices, id: \.self) { i in
               Text("\(i + 1) · \(batches[i].count)")
@@ -1225,6 +1277,7 @@ struct StopDetailSheet: View {
   let stop: StopRecord
   let onNavigate: () -> Void
   let onReorder: (Int) -> Void
+  let isLocked: Bool
   let onClose: () -> Void
 
   var body: some View {
@@ -1266,12 +1319,18 @@ struct StopDetailSheet: View {
             }
             SecondaryButton(title: "Failed") { stop.status = .failed; stop.failureReason = .notHome; onClose() }
             SecondaryButton(title: "Navigate") { onNavigate() }
-            SecondaryButton(title: stop.pinned ? "Unpin stop" : "Pin stop") { stop.pinned.toggle() }
           }
 
-          HStack(spacing: 8) {
-            SecondaryButton(title: "Move up") { onReorder(-1) }
-            SecondaryButton(title: "Move down") { onReorder(1) }
+          if isLocked {
+            Text("Unlock route order to pin or reorder this stop.")
+              .font(.system(size: 14))
+              .foregroundStyle(RP.secondary(scheme))
+          } else {
+            SecondaryButton(title: stop.pinned ? "Unpin stop" : "Pin stop") { stop.pinned.toggle() }
+            HStack(spacing: 8) {
+              SecondaryButton(title: "Move up") { onReorder(-1) }
+              SecondaryButton(title: "Move down") { onReorder(1) }
+            }
           }
 
           if stop.latitude == nil || stop.longitude == nil {

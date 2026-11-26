@@ -1,4 +1,4 @@
-# RoutePilot iOS — Design System (v1.0.5)
+# RoutePilot iOS — Design System (v1.0.7)
 
 ## Design read
 
@@ -190,7 +190,8 @@ Keep sentences short and literal. No exclamation marks, no "Oops", no emoji.
 
 - **Recognition**: AI first via lucif.ai; automatic Apple Vision fallback on missing key, error or offline. Source badge on confirm.
 - **Geocoding**: bundled offline OSM address index first (5,944 entries for the three towns, conservative house-number + street matching, postcode optional; ambiguous matches fall through), then permanent local geocode cache, then TomTom when a user-owned key is set in Maps settings (free, 20k/mo, Malaysia address points/house numbers), then Apple `CLGeocoder`, then Nominatim fallback; no AI coordinates at all. "Restrict stops to current area" is OFF by default so test labels from other cities still work; when ON, results more than 50 km from current GPS are rejected and Nominatim uses structured Taiping/Perak fields. Unresolved stops stay in the list with a badge and no map pin. On upgrade, previously AI-estimated coordinates are cleared and re-geocoded.
-- **Optimisation**: OSRM road durations; open-path solver; end at the farthest efficient stop. Solver indices map to the geocoded subset only; unresolved stops are appended at the end in original order. Launch-time optimization is silent — result messages appear only on manual "Optimize now" / "Navigate all". If OSRM is unavailable the map draws a straight polyline through the geocoded stops.
+- **Optimisation**: OSRM road durations; open-path solver; end at the farthest efficient stop. Solver indices map to the geocoded subset only; unresolved stops are appended at the end in original order. Launch-time optimization is silent — result messages appear only on manual "Optimize now". "Navigate all" opens the map without re-planning. If OSRM is unavailable the map draws a straight polyline through the geocoded stops.
+- **Route order lock**: optional per-route lock in Route options, off by default and released on Reset. While locked, geocoding still runs but no matrix, solver or `orderIndex` changes occur; new stops append, unresolved stops stay in place, and pin/reorder are disabled with an "Unlock to change order" hint. "Optimize now" asks "Unlock and re-plan?" before overriding. A "Locked" pill sits beside the Route title; the Maps batch sheet notes that batches follow the saved order. The lock is device-local and not part of JSON backup.
 - **Delivery windows**: editable on Add Stop and detail; local notification 30 minutes before a window opens; permission requested on first windowed save.
 - **Reorder**: up/down buttons in the detail sheet only, so the list can scroll naturally.
 - **Maps handoff**: a visible Route button plus an options entry opens a batch sheet; batches of 9 are opened one at a time with a tally, using `travelmode=driving` and `dir_action=navigate`.

@@ -496,6 +496,13 @@ enum Osrm {
   }
 }
 
+enum RouteOrderingPolicy {
+  static func reorderedIndices(matrix: [[Double]], stopCount: Int, locked: Bool) -> [Int]? {
+    guard !locked, stopCount > 0 else { return nil }
+    return RouteSolver.order(matrix: matrix, stopCount: stopCount)
+  }
+}
+
 enum RouteSolver {
   static func order(matrix: [[Double]], stopCount: Int) -> [Int] {
     guard stopCount > 0 else { return [] }

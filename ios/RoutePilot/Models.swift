@@ -19,14 +19,16 @@ final class RouteRecord {
   var name: String
   var date: String
   var active: Bool
+  var locked: Bool = false
   @Relationship(deleteRule: .cascade, inverse: \StopRecord.route)
   var stops: [StopRecord] = []
 
-  init(id: String = UUID().uuidString, name: String, date: String, active: Bool) {
+  init(id: String = UUID().uuidString, name: String, date: String, active: Bool, locked: Bool = false) {
     self.id = id
     self.name = name
     self.date = date
     self.active = active
+    self.locked = locked
   }
 }
 

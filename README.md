@@ -5,7 +5,7 @@ Offline-first courier route helper for a small delivery operation around Taiping
 | Platform | Location | Status |
 |---|---|---|
 | Android | `app/` | Native Kotlin/Compose app, debug builds installed and tests passing |
-| iPhone | `ios/` | Native SwiftUI app, v1.0.6, unsigned IPA built on GitHub Actions and sideloaded with AltStore |
+| iPhone | `ios/` | Native SwiftUI app, v1.0.7, unsigned IPA built on GitHub Actions and sideloaded with AltStore |
 
 Product decisions are in `SPEC.md`. Visual systems are in `DESIGN.md` (Android) and `ios/DESIGN.md` (iOS), with a preview at `ios/design-preview.html`.
 
@@ -55,7 +55,7 @@ cd app
 
 SwiftUI, SwiftData, MapKit, iOS 17+, no third-party SDK. Built unsigned by `.github/workflows/ios-build.yml` on a macOS runner, then signed on your iPhone with AltStore and a free Apple ID. No paid Apple Developer Program, no Mac required locally.
 
-Key features in v1.0.6:
+Key features in v1.0.7:
 
 - Four tabs: Route, Scan, Map, Archive. Exceptions are the Failed filter on Route.
 - AI-first scanning with automatic Apple Vision fallback, editable confirmation, and a "Read by AI" / "Read on device" badge.
@@ -64,9 +64,10 @@ Key features in v1.0.6:
 - Every successful geocode is cached permanently on-device. The index checks for updates weekly, with a manual check and cache-clear control in Maps settings.
 - MapKit map with numbered markers, route polyline and a glass stats panel; batched Google Maps handoff with a visible batch tally.
 - Delivery windows in Add/Edit, 30-minute notifications, up/down reorder in the detail sheet, JSON backup/restore, custom app icon, route-line loading animation, full light/dark mode, Dynamic Type and VoiceOver.
+- Optional per-route **Lock route order** switch: while locked, geocoding still runs but the saved stop order stays fixed until you unlock; new stops append, and "Optimize now" asks before overriding.
 - CSV export is intentionally out of scope on iOS.
 
-Download the current unsigned IPA from the [v1.0.6 release](https://github.com/wandanny/RoutePilot/releases/download/v1.0.6-ios/RoutePilot-v1.0.6.ipa). In AltStore, use **Install from URL** with that link, or share the IPA from Files.
+Download the current unsigned IPA from the [v1.0.7 release](https://github.com/wandanny/RoutePilot/releases/download/v1.0.7-ios/RoutePilot-v1.0.7.ipa). In AltStore, use **Install from URL** with that link, or share the IPA from Files.
 
 Because the signing certificate is free, it expires after **7 days**. Keep AltServer running on the PC and use **Refresh All** in AltStore at least weekly, or the app will stop opening. See `ios/README.md` for full sideload instructions.
 
