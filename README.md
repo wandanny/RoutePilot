@@ -36,6 +36,8 @@ cd app
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
 
+Download the published debug APK from the [v1.0-android release](https://github.com/wandanny/RoutePilot/releases/download/v1.0-android/RoutePilot-v1.0.apk). It is debug-signed, so it can be sideloaded directly.
+
 Install on a connected device or emulator:
 
 ```powershell
