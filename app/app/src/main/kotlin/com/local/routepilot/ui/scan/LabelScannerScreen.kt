@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,13 +61,24 @@ fun LabelScannerScreen(onClose: () -> Unit) {
   val context = LocalContext.current
   val viewModel: ScanViewModel = koinViewModel()
   val state by viewModel.uiState.collectAsState(ScanUiState())
+  val sourceLabel by viewModel.sourceLabel.collectAsState("")
   var cameraGranted by remember {
     mutableStateOf(
       ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
     )
   }
+  var showCameraRationale by remember { mutableStateOf(false) }
   val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
     cameraGranted = it
+    if (!it) showCameraRationale = true
+  }
+  val libraryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    uri?.let { viewModel.processLibraryImage(context, it) }
+  }
+  val reduceMotion = remember {
+    runCatching {
+      Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }.getOrDefault(false)
   }
 
   LaunchedEffect(Unit) {
@@ -79,7 +94,17 @@ fun LabelScannerScreen(onClose: () -> Unit) {
   Column(Modifier.fillMaxSize().padding(16.dp)) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
       Text("Scan label", style = MaterialTheme.typography.headlineSmall)
-      TextButton(onClick = { viewModel.releasePhoto(); onClose() }) { Text("Close") }
+      TextButton(
+        onClick = { viewModel.releasePhoto(); onClose() },
+        modifier = Modifier.semantics { contentDescription = "Close scanner" },
+      ) { Text("Close") }
+    }
+    if (sourceLabel.isNotBlank()) {
+      AssistChip(
+        onClick = {},
+        label = { Text(sourceLabel) },
+        modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = "Label read by $sourceLabel" },
+      )
     }
 
     when (state.phase) {
@@ -88,11 +113,15 @@ fun LabelScannerScreen(onClose: () -> Unit) {
           CameraView(
             sessionCount = state.sessionCount,
             onCapture = { viewModel.process(it) },
+            onPickFromLibrary = { libraryLauncher.launch("image/*") },
           )
         } else {
           Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
             Text("Camera permission is needed to read parcel labels.")
-            Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Grant camera") }
+            Button(
+              onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+              modifier = Modifier.semantics { contentDescription = "Grant camera permission" },
+            ) { Text("Grant camera") }
           }
         }
       }
@@ -104,7 +133,11 @@ fun LabelScannerScreen(onClose: () -> Unit) {
 
     if (state.busy || state.cloudBusy) {
       Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+        if (reduceMotion) {
+          Text("Reading label…", modifier = Modifier.semantics { contentDescription = "Reading label" })
+        } else {
+          CircularProgressIndicator(modifier = Modifier.semantics { contentDescription = "Reading label" })
+        }
       }
     }
   }
@@ -130,6 +163,21 @@ fun LabelScannerScreen(onClose: () -> Unit) {
       configured = state.keyConfigured,
       onDismiss = { viewModel.closeSettings() },
       onSave = { viewModel.saveApiKey(it) },
+    )
+  }
+
+  if (showCameraRationale) {
+    AlertDialog(
+      onDismissRequest = { showCameraRationale = false },
+      title = { Text("Camera access") },
+      text = { Text("RoutePilot uses the camera to photograph parcel labels. You can also pick a label photo from your gallery.") },
+      confirmButton = {
+        TextButton(onClick = {
+          showCameraRationale = false
+          permissionLauncher.launch(Manifest.permission.CAMERA)
+        }) { Text("Grant camera") }
+      },
+      dismissButton = { TextButton(onClick = { showCameraRationale = false }) { Text("Not now") } },
     )
   }
 }
@@ -161,7 +209,7 @@ private fun AiSettingsDialog(configured: Boolean, onDismiss: () -> Unit, onSave:
 }
 
 @Composable
-private fun CameraView(sessionCount: Int, onCapture: (Bitmap) -> Unit) {
+private fun CameraView(sessionCount: Int, onCapture: (Bitmap) -> Unit, onPickFromLibrary: () -> Unit) {
   val context = LocalContext.current
   val lifecycleOwner = LocalLifecycleOwner.current
   val controller = remember {
@@ -186,7 +234,8 @@ private fun CameraView(sessionCount: Int, onCapture: (Bitmap) -> Unit) {
       Modifier
         .matchParentSize()
         .padding(horizontal = 32.dp, vertical = 160.dp)
-        .border(2.dp, Color.White, RoundedCornerShape(20.dp)),
+        .border(2.dp, Color.White, RoundedCornerShape(20.dp))
+        .semantics { contentDescription = "Label guide frame" },
     )
 
     Column(
@@ -196,27 +245,37 @@ private fun CameraView(sessionCount: Int, onCapture: (Bitmap) -> Unit) {
     ) {
       Text("Added this session: $sessionCount", color = Color.White)
       Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(onClick = {
-          torchOn = !torchOn
-          runCatching { controller.enableTorch(torchOn) }
-        }) { Text(if (torchOn) "Torch off" else "Torch on", color = Color.White) }
-        Button(onClick = {
-          controller.takePicture(ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageCapturedCallback() {
-            override fun onCaptureSuccess(image: ImageProxy) {
-              try {
-                val matrix = Matrix().apply { postRotate(image.imageInfo.rotationDegrees.toFloat()) }
-                val bitmap = Bitmap.createBitmap(image.toBitmap(), 0, 0, image.width, image.height, matrix, true)
-                onCapture(bitmap)
-              } finally {
-                image.close()
+        OutlinedButton(
+          onClick = {
+            torchOn = !torchOn
+            runCatching { controller.enableTorch(torchOn) }
+          },
+          modifier = Modifier.semantics { contentDescription = "Toggle torch" },
+        ) { Text(if (torchOn) "Torch off" else "Torch on", color = Color.White) }
+        Button(
+          onClick = {
+            controller.takePicture(ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageCapturedCallback() {
+              override fun onCaptureSuccess(image: ImageProxy) {
+                try {
+                  val matrix = Matrix().apply { postRotate(image.imageInfo.rotationDegrees.toFloat()) }
+                  val bitmap = Bitmap.createBitmap(image.toBitmap(), 0, 0, image.width, image.height, matrix, true)
+                  onCapture(bitmap)
+                } finally {
+                  image.close()
+                }
               }
-            }
 
-            override fun onError(exception: ImageCaptureException) {
-              Toast.makeText(context, "Capture failed", Toast.LENGTH_SHORT).show()
-            }
-          })
-        }) { Text("Capture") }
+              override fun onError(exception: ImageCaptureException) {
+                Toast.makeText(context, "Capture failed", Toast.LENGTH_SHORT).show()
+              }
+            })
+          },
+          modifier = Modifier.semantics { contentDescription = "Capture label photo" },
+        ) { Text("Capture") }
+        OutlinedButton(
+          onClick = onPickFromLibrary,
+          modifier = Modifier.semantics { contentDescription = "Choose label photo from gallery" },
+        ) { Text("From gallery", color = Color.White) }
       }
     }
   }

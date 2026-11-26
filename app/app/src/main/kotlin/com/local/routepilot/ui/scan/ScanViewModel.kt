@@ -1,7 +1,10 @@
 package com.local.routepilot.ui.scan
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Rect
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -16,6 +19,7 @@ import com.local.routepilot.data.RouteRepository
 import com.local.routepilot.domain.Stop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -58,12 +62,16 @@ class ScanViewModel(
   private val _uiState = MutableStateFlow(ScanUiState(keyConfigured = settings.apiKey().isNotBlank()))
   val uiState = _uiState.asStateFlow()
 
+  private val _sourceLabel = MutableStateFlow("")
+  val sourceLabel: StateFlow<String> = _sourceLabel.asStateFlow()
+
   private var capturedBitmap: Bitmap? = null
   private var textBounds: Rect? = null
 
   fun process(bitmap: Bitmap) {
     releasePhoto()
     capturedBitmap = bitmap
+    _sourceLabel.value = ""
     val canUseCloud = settings.apiKey().isNotBlank()
     if (canUseCloud && !settings.hasConsent()) {
       _uiState.value = _uiState.value.copy(showConsent = true)
@@ -76,6 +84,7 @@ class ScanViewModel(
         }
         if (cloudResult.isSuccess) {
           val fields = cloudResult.getOrThrow()
+          _sourceLabel.value = "Read by AI"
           _uiState.value = ScanUiState(
             phase = ScanPhase.CONFIRM,
             name = fields.name.orEmpty(),
@@ -113,6 +122,7 @@ class ScanViewModel(
       }
       textBounds = result.getOrNull()?.bounds
       result.onSuccess { outcome ->
+        _sourceLabel.value = "Read on device"
         _uiState.value = ScanUiState(
           phase = if (outcome.duplicate != null) ScanPhase.DUPLICATE else ScanPhase.CONFIRM,
           name = outcome.parsed.name,
@@ -136,6 +146,21 @@ class ScanViewModel(
           sessionCount = _uiState.value.sessionCount,
           cloudCount = _uiState.value.cloudCount,
         )
+      }
+    }
+  }
+
+  fun processLibraryImage(context: Context, uri: Uri) {
+    viewModelScope.launch {
+      val bitmap = withContext(Dispatchers.IO) {
+        runCatching {
+          context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        }.getOrNull()
+      }
+      if (bitmap == null) {
+        _uiState.value = _uiState.value.copy(message = "Could not read that photo")
+      } else {
+        process(bitmap)
       }
     }
   }
@@ -201,6 +226,7 @@ class ScanViewModel(
       }
       result.onSuccess { fields ->
         val current = _uiState.value
+        _sourceLabel.value = "Read by AI"
         _uiState.value = current.copy(
           name = fields.name ?: current.name,
           address = fields.address ?: current.address,
@@ -260,6 +286,7 @@ class ScanViewModel(
 
   fun backToCamera() {
     releasePhoto()
+    _sourceLabel.value = ""
     _uiState.value = ScanUiState(
       phase = ScanPhase.CAMERA,
       sessionCount = _uiState.value.sessionCount,

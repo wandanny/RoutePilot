@@ -44,4 +44,5 @@ data class RouteInfo(
   val name: String,
   val date: String,
   val active: Boolean,
+  val locked: Boolean = false,
 )

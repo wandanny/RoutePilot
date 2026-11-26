@@ -23,6 +23,7 @@ data class RouteEntity(
   val name: String,
   val date: String,
   val active: Boolean,
+  val locked: Boolean = false,
 )
 
 @Entity(
@@ -58,6 +59,15 @@ data class StopEntity(
   val estimatedCoordinates: Boolean = false,
 )
 
+@Entity(tableName = "geocode_cache")
+data class GeocodeCacheEntity(
+  @PrimaryKey val key: String,
+  val latitude: Double,
+  val longitude: Double,
+  val source: String,
+  val createdAt: Long,
+)
+
 class Converters {
   @TypeConverter fun status(value: String): StopStatus = StopStatus.valueOf(value)
   @TypeConverter fun statusName(value: StopStatus): String = value.name
@@ -88,8 +98,26 @@ interface RouteDao {
   @Query("SELECT * FROM stops WHERE trackingId = :trackingId AND trackingId != '' LIMIT 1")
   suspend fun stopByTrackingId(trackingId: String): StopEntity?
 
+  @Query("SELECT MAX(orderIndex) FROM stops WHERE routeId = :routeId")
+  suspend fun maxOrderIndex(routeId: Long): Int?
+
   @Query("UPDATE stops SET latitude = :latitude, longitude = :longitude, estimatedCoordinates = :estimated WHERE id = :id")
   suspend fun updateCoordinates(id: Long, latitude: Double, longitude: Double, estimated: Boolean)
+
+  @Query("UPDATE stops SET latitude = NULL, longitude = NULL, estimatedCoordinates = 0 WHERE estimatedCoordinates = 1")
+  suspend fun clearEstimatedCoordinates()
+
+  @Query("SELECT * FROM geocode_cache WHERE key = :key")
+  suspend fun cache(key: String): GeocodeCacheEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertCache(entry: GeocodeCacheEntity)
+
+  @Query("DELETE FROM geocode_cache")
+  suspend fun clearCache()
+
+  @Query("UPDATE routes SET locked = :locked WHERE id = :routeId")
+  suspend fun setLocked(routeId: Long, locked: Boolean)
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertRoute(route: RouteEntity): Long
@@ -127,7 +155,26 @@ val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
   }
 }
 
-@Database(entities = [RouteEntity::class, StopEntity::class], version = 3, exportSchema = false)
+val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+  override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+    db.execSQL("ALTER TABLE routes ADD COLUMN locked INTEGER NOT NULL DEFAULT 0")
+    db.execSQL(
+      "CREATE TABLE IF NOT EXISTS geocode_cache (" +
+        "key TEXT PRIMARY KEY NOT NULL, " +
+        "latitude REAL NOT NULL, " +
+        "longitude REAL NOT NULL, " +
+        "source TEXT NOT NULL, " +
+        "createdAt INTEGER NOT NULL" +
+        ")",
+    )
+  }
+}
+
+@Database(
+  entities = [RouteEntity::class, StopEntity::class, GeocodeCacheEntity::class],
+  version = 4,
+  exportSchema = false,
+)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
   abstract fun routeDao(): RouteDao

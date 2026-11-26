@@ -35,7 +35,7 @@ Only one accent hue is used. The darker coral is for text and small icons where 
 - Buttons: 48dp minimum height, 16dp radius, filled accent or tonal outline; pressed state reduces opacity to 0.88 and scales 0.98.
 - Cards: surface colour, 16dp radius, no border; elevation only when it communicates hierarchy.
 - Inputs: 12dp radius, surface-muted fill, 1dp divider stroke, 48dp height.
-- Bottom navigation: 72dp height, four destinations — Route, Scan, Exceptions, Archive; active item uses accent text and a short indicator.
+- Bottom navigation: 72dp height, four destinations — Route, Scan, Map, Archive; active item uses accent text and a short indicator. Failed is a filter chip on Route, not a destination.
 - Chips: pill shape, surface-muted fill, 12sp label.
 - Progress: linear indicator in accent fill with Track colour surface-muted.
 - Snackbars: dark surface with light text, no exclamation marks in copy.
@@ -72,6 +72,15 @@ Only one accent hue is used. The darker coral is for text and small icons where 
 - Loading: logo pulse plus wordmark and tagline.
 - Error: "Couldn't read the label. Try again or enter the address manually."
 - Offline: "You're offline. Stops are saved on this device; route optimisation will run when you reconnect."
+
+## Information architecture (v2.0 parity decisions)
+
+- Four destinations: Route, Scan, Map, Archive. Route's filter chips are All / Pending / Done / **Failed**; the Failed chip uses a small symbol plus the word, never colour alone.
+- Route options hold the per-route **Lock route order** switch; a **Locked** pill sits beside the Route title. While locked, reorder/pin and re-plan are guarded with "Unlock to change order", and new stops append.
+- Google Maps handoff opens a batch sheet: chunks of nine in saved order, opened one at a time with a visible tally.
+- Stop cards carry a static mini-map preview (one pin, no route line, 88dp tall, 12dp radius); unresolved addresses show a neutral "Location not found" placeholder instead of an estimated pin.
+- The opening route-line drawing also acts as the app-switcher cover: branded charcoal panel with the logo, "RoutePilot" wordmark and "Your route, sorted.", shown while loading and when the app goes to the background.
+- Accessibility: 48dp targets, system font scaling without clipping, screen-reader labels on every control, status by word and symbol, and Reduce Motion replaces the route-line draw with a cross-fade.
 
 ## Agent Prompt Guide
 - Use Material 3 components with the tokens above.

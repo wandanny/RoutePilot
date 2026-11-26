@@ -15,16 +15,17 @@ import com.local.routepilot.domain.RouteInfo
 import com.local.routepilot.domain.RouteLinks
 import com.local.routepilot.domain.Stop
 import com.local.routepilot.domain.StopStatus
+import com.local.routepilot.notifications.DeliveryNotifications
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class PlanState(
@@ -56,8 +57,19 @@ class MainScreenViewModel(
   private val origin = MutableStateFlow<Pair<Double, Double>?>(null)
   private val message = MutableStateFlow<String?>(null)
   private val _plan = MutableStateFlow(PlanState())
+  private val _sourceLabel = MutableStateFlow("")
+  private val _batchIndex = MutableStateFlow(0)
+  private var appContext: Context? = null
   private var lastCompleted: Long? = null
   private var plannerJob: Job? = null
+
+  val sourceLabel: StateFlow<String> = _sourceLabel.asStateFlow()
+  val batchIndex: StateFlow<Int> = _batchIndex.asStateFlow()
+
+  val mapBatches: List<List<Stop>>
+    get() = uiState.value.stops
+      .filter { it.status == StopStatus.PENDING }
+      .chunked(RouteLinks.CHUNK_SIZE)
 
   val ready: StateFlow<Boolean>
     get() = _ready
@@ -97,6 +109,15 @@ class MainScreenViewModel(
     initialValue = RoutePilotUiState(),
   )
 
+  /** MainActivity and the route screen hand their context here so per-stop work can reach WorkManager. */
+  fun attachContext(context: Context) {
+    appContext = context.applicationContext
+  }
+
+  fun setSourceLabel(label: String) {
+    _sourceLabel.value = label
+  }
+
   fun setOrigin(latitude: Double, longitude: Double) {
     origin.value = latitude to longitude
   }
@@ -117,10 +138,22 @@ class MainScreenViewModel(
   }
 
   fun optimizeNow() {
+    runOptimization(unlock = false)
+  }
+
+  fun unlockAndOptimize() {
+    runOptimization(unlock = true)
+  }
+
+  private fun runOptimization(unlock: Boolean) {
     if (_plan.value.busy) return
     locationProvider.current()?.let { origin.value = it }
     plannerJob?.cancel()
     plannerJob = viewModelScope.launch {
+      if (unlock) {
+        val routeId = repository.activeRoute.first()?.id
+        if (routeId != null) repository.setRouteLocked(routeId, false)
+      }
       _plan.value = _plan.value.copy(busy = true)
       val result = runCatching { planner.prepare(origin.value) }.getOrNull() ?: PlanResult()
       _plan.value = _plan.value.copy(
@@ -138,11 +171,27 @@ class MainScreenViewModel(
     }
   }
 
+  fun setRouteLocked(locked: Boolean) {
+    viewModelScope.launch {
+      val routeId = repository.activeRoute.first()?.id ?: return@launch
+      repository.setRouteLocked(routeId, locked)
+    }
+  }
+
+  fun clearGeocodeCache() {
+    viewModelScope.launch {
+      repository.clearGeocodeCache()
+      message.value = "Geocode cache cleared"
+    }
+  }
+
   fun resetRoute() {
     viewModelScope.launch {
+      cancelAllReminders()
       repository.newRoute("New route")
       _plan.value = PlanState()
-      message.value = "Route archived. New route started."
+      _batchIndex.value = 0
+      message.value = "Route archived. New route started. The order lock is released."
     }
   }
 
@@ -173,7 +222,15 @@ class MainScreenViewModel(
         errors.isNotEmpty() -> "Imported $count stops. ${errors.first()}"
         else -> "Imported $count stops"
       }
-      if (count > 0) refreshPlan()
+      if (count > 0) {
+        val routeId = repository.activeRoute.first()?.id
+        if (routeId != null) {
+          repository.stopsNow(routeId)
+            .filter { it.status == StopStatus.PENDING && it.windowStart.isNotBlank() }
+            .forEach { scheduleReminder(it) }
+        }
+        refreshPlan()
+      }
     }
   }
 
@@ -199,7 +256,33 @@ class MainScreenViewModel(
           latitude = latitude, longitude = longitude,
         ),
       )
+      val created = repository.stopsNow(route.id).maxByOrNull { it.id }
+      if (created != null && created.windowStart.isNotBlank()) scheduleReminder(created)
       message.value = "Stop added"
+      refreshPlan()
+    }
+  }
+
+  fun saveWindow(stopId: Long, windowStart: String, windowEnd: String) {
+    viewModelScope.launch {
+      val routeId = repository.activeRoute.first()?.id ?: return@launch
+      val stops = repository.stopsNow(routeId).map { stop ->
+        if (stop.id == stopId) {
+          stop.copy(windowStart = windowStart.trim(), windowEnd = windowEnd.trim())
+        } else {
+          stop
+        }
+      }
+      repository.updateStops(stops)
+      val updated = stops.firstOrNull { it.id == stopId }
+      if (updated != null) {
+        if (updated.windowStart.isNotBlank()) {
+          scheduleReminder(updated)
+        } else {
+          cancelReminder(stopId)
+        }
+      }
+      message.value = "Stop updated"
       refreshPlan()
     }
   }
@@ -207,6 +290,7 @@ class MainScreenViewModel(
   fun complete(id: Long) {
     viewModelScope.launch {
       lastCompleted = id
+      cancelReminder(id)
       repository.setStatus(id, StopStatus.DONE)
       message.value = "Stop completed"
       refreshPlan()
@@ -215,6 +299,7 @@ class MainScreenViewModel(
 
   fun fail(id: Long, reason: FailureReason, note: String, retryAt: String) {
     viewModelScope.launch {
+      cancelReminder(id)
       repository.setStatus(id, StopStatus.FAILED, reason, note, retryAt)
       message.value = "Stop moved to Exceptions"
       refreshPlan()
@@ -225,6 +310,12 @@ class MainScreenViewModel(
     val id = lastCompleted ?: return
     viewModelScope.launch {
       repository.setStatus(id, StopStatus.PENDING)
+      val routeId = repository.activeRoute.first()?.id
+      if (routeId != null) {
+        repository.stopsNow(routeId).firstOrNull { it.id == id }
+          ?.takeIf { it.windowStart.isNotBlank() }
+          ?.let { scheduleReminder(it) }
+      }
       lastCompleted = null
       message.value = "Completion undone"
       refreshPlan()
@@ -290,8 +381,7 @@ class MainScreenViewModel(
   private fun openChunk(context: Context, chunks: List<List<Stop>>, index: Int) {
     val chunk = chunks[index]
     val originText = if (index == 0) {
-      origin.value?.let { "${it.first},${it.second}" }
-        ?: place(chunk.first())
+      origin.value?.let { "${it.first},${it.second}" } ?: place(chunk.first())
     } else {
       place(chunks[index - 1].last())
     }
@@ -300,10 +390,50 @@ class MainScreenViewModel(
       .onFailure { message.value = "Google Maps is not installed" }
   }
 
+  fun openBatch(index: Int) {
+    val batches = mapBatches
+    if (index !in batches.indices) return
+    _batchIndex.value = index
+    val context = appContext ?: return
+    val batch = batches[index]
+    val originText = if (index == 0) {
+      origin.value?.let { "${it.first},${it.second}" } ?: place(batch.first())
+    } else {
+      place(batches[index - 1].last())
+    }
+    val url = RouteLinks.build(originText, batch)
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+      .onFailure { message.value = "Google Maps is not installed" }
+  }
+
+  fun nextBatch() {
+    val next = _batchIndex.value + 1
+    if (next < mapBatches.size) _batchIndex.value = next
+  }
+
   private fun place(stop: Stop): String =
     if (stop.latitude != null && stop.longitude != null) "${stop.latitude},${stop.longitude}" else stop.address
 
+  private fun scheduleReminder(stop: Stop) {
+    val context = appContext ?: return
+    runCatching {
+      DeliveryNotifications.schedule(context, stop.id, stop.label.ifBlank { stop.address }, stop.windowStart)
+    }
+  }
+
+  private fun cancelReminder(stopId: Long) {
+    val context = appContext ?: return
+    runCatching { DeliveryNotifications.cancel(context, stopId) }
+  }
+
+  private suspend fun cancelAllReminders() {
+    val routeId = repository.activeRoute.first()?.id ?: return
+    repository.stopsNow(routeId).forEach { cancelReminder(it.id) }
+  }
+
   suspend fun backupJson(): String = repository.exportBackup()
+
   suspend fun routeCsv(routeId: Long): String = repository.exportCsv(routeId)
 
   fun restoreBackup(text: String) {
@@ -316,9 +446,11 @@ class MainScreenViewModel(
 
   fun newRoute() {
     viewModelScope.launch {
+      cancelAllReminders()
       repository.newRoute("New route")
       message.value = "New route created"
       _plan.value = PlanState()
+      _batchIndex.value = 0
     }
   }
 }

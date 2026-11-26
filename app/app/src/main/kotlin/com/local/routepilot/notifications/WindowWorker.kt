@@ -27,7 +27,9 @@ class WindowWorker(
       if (parts.size != 2) return@filter false
       val target = parts[0].toIntOrNull()?.times(60)?.plus(parts[1].toIntOrNull() ?: 0) ?: return@filter false
       val diff = target - nowMinutes
-      diff in 0..30
+      diff in 0..30 &&
+        !DeliveryNotifications.isScheduled(applicationContext, stop.id) &&
+        !DeliveryNotifications.wasDeliveredRecently(applicationContext, stop.id)
     }
 
     if (upcoming.isNotEmpty()) {
@@ -43,6 +45,7 @@ class WindowWorker(
         .setStyle(NotificationCompat.BigTextStyle().bigText(text))
         .build()
       manager.notify(1001, notification)
+      upcoming.forEach { DeliveryNotifications.markFired(applicationContext, it.id) }
     }
     return Result.success()
   }

@@ -9,7 +9,11 @@ import com.local.routepilot.domain.StopStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
@@ -17,11 +21,32 @@ import java.util.Date
 import java.util.Locale
 
 @Serializable
-data class BackupPayload(val routes: List<RouteInfo>, val stops: List<Stop>)
+data class BackupPayload(
+  @Serializable(with = BackupRouteSerializer::class) val routes: List<RouteInfo>,
+  val stops: List<Stop>,
+)
 
-class RouteRepository(context: Context) {
+private object BackupRouteSerializer : KSerializer<RouteInfo> {
+  @Serializable
+  private data class RouteData(val id: Long, val name: String, val date: String, val active: Boolean)
+
+  private val delegate = RouteData.serializer()
+  override val descriptor: SerialDescriptor = delegate.descriptor
+
+  override fun serialize(encoder: Encoder, value: RouteInfo) {
+    delegate.serialize(encoder, RouteData(value.id, value.name, value.date, value.active))
+  }
+
+  override fun deserialize(decoder: Decoder): RouteInfo {
+    val data = delegate.deserialize(decoder)
+    return RouteInfo(id = data.id, name = data.name, date = data.date, active = data.active)
+  }
+}
+
+class RouteRepository(private val context: Context) {
+  private val settings by lazy { AiSettings(context) }
   private val db = Room.databaseBuilder(context, AppDatabase::class.java, "routepilot.db")
-    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
     .build()
   private val dao = db.routeDao()
   private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
@@ -46,6 +71,35 @@ class RouteRepository(context: Context) {
     dao.updateStops(stops.map { it.toEntity() })
   }
 
+  suspend fun setRouteLocked(routeId: Long, locked: Boolean) {
+    dao.setLocked(routeId, locked)
+  }
+
+  suspend fun cachedPoint(key: String): Pair<Double, Double>? =
+    dao.cache(key)?.let { it.latitude to it.longitude }
+
+  suspend fun saveCache(key: String, lat: Double, lon: Double, source: String) {
+    dao.insertCache(
+      GeocodeCacheEntity(
+        key = key,
+        latitude = lat,
+        longitude = lon,
+        source = source,
+        createdAt = System.currentTimeMillis(),
+      ),
+    )
+  }
+
+  suspend fun clearGeocodeCache() {
+    dao.clearCache()
+  }
+
+  suspend fun clearEstimatedCoordinates() {
+    if (settings.aiCoordsCleared()) return
+    dao.clearEstimatedCoordinates()
+    settings.markAiCoordsCleared()
+  }
+
   suspend fun ensureActiveRoute() {
     if (dao.activeRoute().first() == null) newRoute("Today's route")
   }
@@ -63,8 +117,10 @@ class RouteRepository(context: Context) {
     }
     if ("address" !in stopFields) return 0 to listOf("No 'address' column found")
 
-    val routeId = newRoute("Imported route")
-    val entities = parsed.rows.mapIndexedNotNull { index, row ->
+    ensureActiveRoute()
+    val routeId = dao.activeRoute().first()?.id ?: return 0 to listOf("No active route")
+    var index = (dao.maxOrderIndex(routeId) ?: -1) + 1
+    val entities = parsed.rows.mapNotNull { row ->
       val address = CsvParser.field(row, "address")
       if (address.isBlank()) {
         null
@@ -81,7 +137,7 @@ class RouteRepository(context: Context) {
           windowEnd = CsvParser.field(row, "windowend", "window_end", "end"),
           latitude = CsvParser.field(row, "latitude", "lat").toDoubleOrNull(),
           longitude = CsvParser.field(row, "longitude", "lon", "lng").toDoubleOrNull(),
-          orderIndex = index,
+          orderIndex = index++,
           pinned = false,
           status = StopStatus.PENDING,
           failureReason = null,
@@ -133,7 +189,9 @@ class RouteRepository(context: Context) {
     dao.clearAllStops()
     dao.clearAllRoutes()
     payload.routes.forEach { route ->
-      val id = dao.insertRoute(RouteEntity(id = route.id, name = route.name, date = route.date, active = route.active))
+      val id = dao.insertRoute(
+        RouteEntity(id = route.id, name = route.name, date = route.date, active = route.active, locked = route.locked),
+      )
       val stops = payload.stops.filter { it.routeId == route.id }.map { it.copy(routeId = id).toEntity() }
       dao.insertStops(stops)
     }
@@ -154,7 +212,7 @@ class RouteRepository(context: Context) {
   }
 }
 
-private fun RouteEntity.toDomain() = RouteInfo(id, name, date, active)
+private fun RouteEntity.toDomain() = RouteInfo(id, name, date, active, locked)
 
 private fun StopEntity.toDomain() = Stop(
   id = id, routeId = routeId, address = address, label = label, recipient = recipient,

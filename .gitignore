@@ -21,6 +21,7 @@ ios/RoutePilot.xcodeproj/
 
 # Temp tooling
 .extra/
+.kotlin/
 
 # Office lock files
 .~lock.*#
